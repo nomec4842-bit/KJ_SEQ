@@ -975,6 +975,36 @@ bool VST3Host::load(const std::string& pluginPath)
             return finish(false);
         }
 
+        struct ComponentLoadCleanup
+        {
+            Steinberg::IPtr<Steinberg::Vst::IComponent> component;
+            Steinberg::IPtr<Steinberg::Vst::IEditController> controller;
+            Steinberg::IPtr<Steinberg::Vst::IConnectionPoint> componentConnectionPoint;
+            Steinberg::IPtr<Steinberg::Vst::IConnectionPoint> controllerConnectionPoint;
+            bool controllerInitialized = false;
+            bool dismissed = false;
+
+            ~ComponentLoadCleanup()
+            {
+                if (dismissed)
+                    return;
+
+                if (componentConnectionPoint && controllerConnectionPoint)
+                {
+                    componentConnectionPoint->disconnect(controllerConnectionPoint);
+                    controllerConnectionPoint->disconnect(componentConnectionPoint);
+                }
+
+                if (controllerInitialized && controller)
+                    controller->terminate();
+
+                if (component)
+                    component->terminate();
+            }
+
+            void dismiss() { dismissed = true; }
+        } loadCleanup{component};
+
         TUID componentControllerTuid{};
         const tresult componentControllerResult =
             component->getControllerClassId(componentControllerTuid);
@@ -1029,6 +1059,8 @@ bool VST3Host::load(const std::string& pluginPath)
             return finish(false);
         }
         controllerInitialized_ = true;
+        loadCleanup.controller = controller;
+        loadCleanup.controllerInitialized = true;
 
         auto componentHandler = new ComponentHandler(*this);
         controller->setComponentHandler(static_cast<Steinberg::Vst::IComponentHandler*>(componentHandler));
@@ -1044,6 +1076,8 @@ bool VST3Host::load(const std::string& pluginPath)
             componentHandler->release();
             return finish(false);
         }
+        loadCleanup.componentConnectionPoint = componentConnectionPoint;
+        loadCleanup.controllerConnectionPoint = controllerConnectionPoint;
 
         if (componentConnectionPoint->connect(controllerConnectionPoint) != kResultOk ||
             controllerConnectionPoint->connect(componentConnectionPoint) != kResultOk)
@@ -1095,6 +1129,7 @@ bool VST3Host::load(const std::string& pluginPath)
         refreshFallbackParameters();
         updateHeaderTexts();
 #endif
+        loadCleanup.dismiss();
 
         return finish(true);
     }
@@ -1976,6 +2011,19 @@ void VST3Host::unloadLocked()
     currentViewType_.clear();
     currentPlatformType_.clear();
     controllerInitialized_ = false;
+
+    Steinberg::IPtr<Steinberg::Vst::IConnectionPoint> componentConnectionPoint;
+    Steinberg::IPtr<Steinberg::Vst::IConnectionPoint> controllerConnectionPoint;
+    if (component_)
+        componentConnectionPoint = Steinberg::FUnknownPtr<Steinberg::Vst::IConnectionPoint>(component_);
+    if (controller_)
+        controllerConnectionPoint = Steinberg::FUnknownPtr<Steinberg::Vst::IConnectionPoint>(controller_);
+
+    if (componentConnectionPoint && controllerConnectionPoint)
+    {
+        componentConnectionPoint->disconnect(controllerConnectionPoint);
+        controllerConnectionPoint->disconnect(componentConnectionPoint);
+    }
 
     if (controller_)
         controller_->terminate();
