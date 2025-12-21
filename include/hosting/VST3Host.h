@@ -298,6 +298,12 @@ private:
     bool processingActive_ = false;
     Steinberg::int32 mainInputBusIndex_ = -1;
     Steinberg::int32 mainOutputBusIndex_ = -1;
+    Steinberg::int32 inputBusCount_ = 0;
+    Steinberg::int32 outputBusCount_ = 0;
+    Steinberg::int32 totalInputChannels_ = 0;
+    Steinberg::int32 totalOutputChannels_ = 0;
+    std::vector<Steinberg::Vst::SpeakerArrangement> inputBusArrangements_;
+    std::vector<Steinberg::Vst::SpeakerArrangement> outputBusArrangements_;
     Steinberg::Vst::SpeakerArrangement inputArrangement_ = Steinberg::Vst::SpeakerArr::kEmpty;
     Steinberg::Vst::SpeakerArrangement outputArrangement_ = Steinberg::Vst::SpeakerArr::kEmpty;
     mutable std::mutex vst3Mutex_;
