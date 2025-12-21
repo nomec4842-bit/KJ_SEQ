@@ -1246,34 +1246,8 @@ bool VST3Host::prepare(double sampleRate, int blockSize)
     }
 
     // ————————————————
-    // STEP 1: setActive(true)
+    // STEP 1: setBusArrangements BEFORE activation
     // ————————————————
-    {
-        std::lock_guard<std::mutex> lock(vst3Mutex());
-        if (component_->setActive(true) != kResultOk)
-            return false;
-    }
-
-    // ————————————————————————————————
-    // STEP 2: activate ALL input and output buses
-    // ————————————————————————————————
-    for (Steinberg::int32 i = 0; i < inputBusCount; ++i)
-    {
-        std::lock_guard<std::mutex> lock(vst3Mutex());
-        if (component_->activateBus(Steinberg::Vst::kAudio, Steinberg::Vst::kInput, i, true) != kResultOk)
-            return false;
-    }
-
-    for (Steinberg::int32 i = 0; i < outputBusCount; ++i)
-    {
-        std::lock_guard<std::mutex> lock(vst3Mutex());
-        if (component_->activateBus(Steinberg::Vst::kAudio, Steinberg::Vst::kOutput, i, true) != kResultOk)
-            return false;
-    }
-
-    // ————————————————————————————————
-    // STEP 3: setBusArrangements AFTER bus activation
-    // ————————————————————————————————
     {
         std::lock_guard<std::mutex> lock(vst3Mutex());
         const auto arrangementResult = processor_->setBusArrangements(
@@ -1305,7 +1279,7 @@ bool VST3Host::prepare(double sampleRate, int blockSize)
     }
 
     // ————————————————————————————————
-    // STEP 4: setupProcessing AFTER arrangements
+    // STEP 2: setupProcessing AFTER arrangements
     // ————————————————————————————————
     Steinberg::Vst::ProcessSetup setup {};
     setup.processMode        = Steinberg::Vst::kRealtime;
@@ -1352,6 +1326,32 @@ bool VST3Host::prepare(double sampleRate, int blockSize)
     processContext_.timeSigNumerator   = 4;
     processContext_.timeSigDenominator = 4;
     processContext_.state |= Steinberg::Vst::ProcessContext::kTempoValid;
+
+    // ————————————————————————————————
+    // STEP 3: setActive(true) AFTER setupProcessing and BEFORE bus activation
+    // ————————————————————————————————
+    {
+        std::lock_guard<std::mutex> lock(vst3Mutex());
+        if (component_->setActive(true) != kResultOk)
+            return false;
+    }
+
+    // ————————————————————————————————
+    // STEP 4: activate ALL input and output buses AFTER activation and BEFORE processing
+    // ————————————————————————————————
+    for (Steinberg::int32 i = 0; i < inputBusCount; ++i)
+    {
+        std::lock_guard<std::mutex> lock(vst3Mutex());
+        if (component_->activateBus(Steinberg::Vst::kAudio, Steinberg::Vst::kInput, i, true) != kResultOk)
+            return false;
+    }
+
+    for (Steinberg::int32 i = 0; i < outputBusCount; ++i)
+    {
+        std::lock_guard<std::mutex> lock(vst3Mutex());
+        if (component_->activateBus(Steinberg::Vst::kAudio, Steinberg::Vst::kOutput, i, true) != kResultOk)
+            return false;
+    }
 
     if (processor_->setProcessing(true) != kResultOk)
         return false;
