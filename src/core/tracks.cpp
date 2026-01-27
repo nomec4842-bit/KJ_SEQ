@@ -57,6 +57,20 @@ std::shared_ptr<TrackData> makeTrackData(const std::string& name)
     baseTrack.synthDecay = kDefaultSynthDecay;
     baseTrack.synthSustain = kDefaultSynthSustain;
     baseTrack.synthRelease = kDefaultSynthRelease;
+    baseTrack.synthThreeOscEnabled = false;
+    for (auto& osc : baseTrack.synthOscillators)
+    {
+        osc.formant = kDefaultFormant;
+        osc.resonance = kDefaultResonance;
+        osc.feedback = kDefaultFeedback;
+        osc.pitch = kDefaultPitch;
+        osc.pitchRange = kDefaultPitchRange;
+        osc.attack = kDefaultSynthAttack;
+        osc.decay = kDefaultSynthDecay;
+        osc.sustain = kDefaultSynthSustain;
+        osc.release = kDefaultSynthRelease;
+        osc.wavetableEnabled = kDefaultSynthWavetableEnabled;
+    }
     baseTrack.sampleAttack = kDefaultSampleAttack;
     baseTrack.sampleRelease = kDefaultSampleRelease;
     baseTrack.midiChannel = kDefaultMidiChannel;
@@ -156,6 +170,21 @@ std::vector<Track> getTracks()
         info.synthSustain = track->synthSustain.load(std::memory_order_relaxed);
         info.synthRelease = track->synthRelease.load(std::memory_order_relaxed);
         info.synthPhaseSync = track->synthPhaseSync.load(std::memory_order_relaxed);
+        info.synthThreeOscEnabled = track->synthThreeOscEnabled.load(std::memory_order_relaxed);
+        for (size_t oscIndex = 0; oscIndex < info.synthOscillators.size(); ++oscIndex)
+        {
+            info.synthOscillators[oscIndex].formant = track->synthOscFormant[oscIndex].load(std::memory_order_relaxed);
+            info.synthOscillators[oscIndex].resonance = track->synthOscResonance[oscIndex].load(std::memory_order_relaxed);
+            info.synthOscillators[oscIndex].feedback = track->synthOscFeedback[oscIndex].load(std::memory_order_relaxed);
+            info.synthOscillators[oscIndex].pitch = track->synthOscPitch[oscIndex].load(std::memory_order_relaxed);
+            info.synthOscillators[oscIndex].pitchRange = track->synthOscPitchRange[oscIndex].load(std::memory_order_relaxed);
+            info.synthOscillators[oscIndex].attack = track->synthOscAttack[oscIndex].load(std::memory_order_relaxed);
+            info.synthOscillators[oscIndex].decay = track->synthOscDecay[oscIndex].load(std::memory_order_relaxed);
+            info.synthOscillators[oscIndex].sustain = track->synthOscSustain[oscIndex].load(std::memory_order_relaxed);
+            info.synthOscillators[oscIndex].release = track->synthOscRelease[oscIndex].load(std::memory_order_relaxed);
+            info.synthOscillators[oscIndex].wavetableEnabled =
+                track->synthOscWavetableEnabled[oscIndex].load(std::memory_order_relaxed);
+        }
         info.sampleAttack = track->sampleAttack.load(std::memory_order_relaxed);
         info.sampleRelease = track->sampleRelease.load(std::memory_order_relaxed);
         for (size_t i = 0; i < info.lfoSettings.size(); ++i)
@@ -1110,4 +1139,3 @@ void trackSetSidechainRelease(int trackId, float value)
     float clamped = std::clamp(value, kMinSynthEnvelopeTime, kMaxSynthEnvelopeTime);
     track->sidechainRelease.store(clamped, std::memory_order_relaxed);
 }
-
