@@ -689,6 +689,7 @@ bool saveProjectToFile(const std::filesystem::path& path)
         float synthSustain = trackGetSynthSustain(track.id);
         float synthRelease = trackGetSynthRelease(track.id);
         bool synthPhaseSync = trackGetSynthPhaseSync(track.id);
+        bool synthThreeOscEnabled = trackGetSynthThreeOscEnabled(track.id);
         float sampleAttack = trackGetSampleAttack(track.id);
         float sampleRelease = trackGetSampleRelease(track.id);
         int midiChannel = trackGetMidiChannel(track.id);
@@ -728,6 +729,34 @@ bool saveProjectToFile(const std::filesystem::path& path)
         stream << "      \"synthSustain\": " << formatFloat(synthSustain) << ",\n";
         stream << "      \"synthRelease\": " << formatFloat(synthRelease) << ",\n";
         stream << "      \"phaseSync\": " << (synthPhaseSync ? "true" : "false") << ",\n";
+        stream << "      \"threeOsc\": " << (synthThreeOscEnabled ? "true" : "false") << ",\n";
+        stream << "      \"oscillators\": [\n";
+        for (size_t oscIndex = 0; oscIndex < kSynthOscillatorCount; ++oscIndex)
+        {
+            stream << "        {\n";
+            stream << "          \"index\": " << oscIndex << ",\n";
+            stream << "          \"wavetable\": " << (trackGetSynthOscWavetableEnabled(track.id, static_cast<int>(oscIndex)) ? "true" : "false") << ",\n";
+            stream << "          \"formant\": "
+                   << formatFloat(trackGetSynthOscFormant(track.id, static_cast<int>(oscIndex))) << ",\n";
+            stream << "          \"resonance\": "
+                   << formatFloat(trackGetSynthOscResonance(track.id, static_cast<int>(oscIndex))) << ",\n";
+            stream << "          \"feedback\": "
+                   << formatFloat(trackGetSynthOscFeedback(track.id, static_cast<int>(oscIndex))) << ",\n";
+            stream << "          \"pitch\": "
+                   << formatFloat(trackGetSynthOscPitch(track.id, static_cast<int>(oscIndex))) << ",\n";
+            stream << "          \"pitchRange\": "
+                   << formatFloat(trackGetSynthOscPitchRange(track.id, static_cast<int>(oscIndex))) << ",\n";
+            stream << "          \"attack\": "
+                   << formatFloat(trackGetSynthOscAttack(track.id, static_cast<int>(oscIndex))) << ",\n";
+            stream << "          \"decay\": "
+                   << formatFloat(trackGetSynthOscDecay(track.id, static_cast<int>(oscIndex))) << ",\n";
+            stream << "          \"sustain\": "
+                   << formatFloat(trackGetSynthOscSustain(track.id, static_cast<int>(oscIndex))) << ",\n";
+            stream << "          \"release\": "
+                   << formatFloat(trackGetSynthOscRelease(track.id, static_cast<int>(oscIndex))) << "\n";
+            stream << "        }" << (oscIndex + 1 < kSynthOscillatorCount ? ",\n" : "\n");
+        }
+        stream << "      ],\n";
         stream << "      \"sampleAttack\": " << formatFloat(sampleAttack) << ",\n";
         stream << "      \"sampleRelease\": " << formatFloat(sampleRelease) << ",\n";
         stream << "      \"lfos\": [\n";
@@ -933,6 +962,47 @@ bool loadProjectFromFile(const std::filesystem::path& path)
         trackSetSynthSustain(trackId, jsonToFloat(findMember(trackObject, "synthSustain"), trackGetSynthSustain(trackId)));
         trackSetSynthRelease(trackId, jsonToFloat(findMember(trackObject, "synthRelease"), trackGetSynthRelease(trackId)));
         trackSetSynthPhaseSync(trackId, jsonToBool(findMember(trackObject, "phaseSync"), trackGetSynthPhaseSync(trackId)));
+        trackSetSynthThreeOscEnabled(trackId,
+                                     jsonToBool(findMember(trackObject, "threeOsc"), trackGetSynthThreeOscEnabled(trackId)));
+        const JsonValue* oscillatorsValue = findMember(trackObject, "oscillators");
+        if (oscillatorsValue && oscillatorsValue->isArray())
+        {
+            for (const auto& oscValue : oscillatorsValue->asArray())
+            {
+                if (!oscValue.isObject())
+                    continue;
+
+                const auto& oscObject = oscValue.asObject();
+                int index = jsonToInt(findMember(oscObject, "index"), -1);
+                if (index < 0 || index >= static_cast<int>(kSynthOscillatorCount))
+                    continue;
+
+                trackSetSynthOscWavetableEnabled(trackId, index,
+                                                 jsonToBool(findMember(oscObject, "wavetable"),
+                                                            trackGetSynthOscWavetableEnabled(trackId, index)));
+                trackSetSynthOscFormant(trackId, index,
+                                        jsonToFloat(findMember(oscObject, "formant"), trackGetSynthOscFormant(trackId, index)));
+                trackSetSynthOscResonance(trackId, index,
+                                          jsonToFloat(findMember(oscObject, "resonance"),
+                                                      trackGetSynthOscResonance(trackId, index)));
+                trackSetSynthOscFeedback(trackId, index,
+                                         jsonToFloat(findMember(oscObject, "feedback"),
+                                                     trackGetSynthOscFeedback(trackId, index)));
+                trackSetSynthOscPitch(trackId, index,
+                                      jsonToFloat(findMember(oscObject, "pitch"), trackGetSynthOscPitch(trackId, index)));
+                trackSetSynthOscPitchRange(trackId, index,
+                                           jsonToFloat(findMember(oscObject, "pitchRange"),
+                                                       trackGetSynthOscPitchRange(trackId, index)));
+                trackSetSynthOscAttack(trackId, index,
+                                       jsonToFloat(findMember(oscObject, "attack"), trackGetSynthOscAttack(trackId, index)));
+                trackSetSynthOscDecay(trackId, index,
+                                      jsonToFloat(findMember(oscObject, "decay"), trackGetSynthOscDecay(trackId, index)));
+                trackSetSynthOscSustain(trackId, index,
+                                        jsonToFloat(findMember(oscObject, "sustain"), trackGetSynthOscSustain(trackId, index)));
+                trackSetSynthOscRelease(trackId, index,
+                                        jsonToFloat(findMember(oscObject, "release"), trackGetSynthOscRelease(trackId, index)));
+            }
+        }
         trackSetSampleAttack(trackId, jsonToFloat(findMember(trackObject, "sampleAttack"), trackGetSampleAttack(trackId)));
         trackSetSampleRelease(trackId, jsonToFloat(findMember(trackObject, "sampleRelease"), trackGetSampleRelease(trackId)));
         const JsonValue* lfosValue = findMember(trackObject, "lfos");
@@ -1125,4 +1195,3 @@ bool loadProjectFromFile(const std::filesystem::path& path)
 
     return true;
 }
-

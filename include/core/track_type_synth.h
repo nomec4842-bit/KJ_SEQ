@@ -37,6 +37,39 @@ void trackSetSynthRelease(int trackId, float value);
 bool trackGetSynthPhaseSync(int trackId);
 void trackSetSynthPhaseSync(int trackId, bool enabled);
 
+bool trackGetSynthThreeOscEnabled(int trackId);
+void trackSetSynthThreeOscEnabled(int trackId, bool enabled);
+
+float trackGetSynthOscFormant(int trackId, int oscIndex);
+void trackSetSynthOscFormant(int trackId, int oscIndex, float value);
+
+float trackGetSynthOscResonance(int trackId, int oscIndex);
+void trackSetSynthOscResonance(int trackId, int oscIndex, float value);
+
+float trackGetSynthOscFeedback(int trackId, int oscIndex);
+void trackSetSynthOscFeedback(int trackId, int oscIndex, float value);
+
+float trackGetSynthOscPitch(int trackId, int oscIndex);
+void trackSetSynthOscPitch(int trackId, int oscIndex, float value);
+
+float trackGetSynthOscPitchRange(int trackId, int oscIndex);
+void trackSetSynthOscPitchRange(int trackId, int oscIndex, float value);
+
+float trackGetSynthOscAttack(int trackId, int oscIndex);
+void trackSetSynthOscAttack(int trackId, int oscIndex, float value);
+
+float trackGetSynthOscDecay(int trackId, int oscIndex);
+void trackSetSynthOscDecay(int trackId, int oscIndex, float value);
+
+float trackGetSynthOscSustain(int trackId, int oscIndex);
+void trackSetSynthOscSustain(int trackId, int oscIndex, float value);
+
+float trackGetSynthOscRelease(int trackId, int oscIndex);
+void trackSetSynthOscRelease(int trackId, int oscIndex, float value);
+
+bool trackGetSynthOscWavetableEnabled(int trackId, int oscIndex);
+void trackSetSynthOscWavetableEnabled(int trackId, int oscIndex, bool enabled);
+
 float trackGetLfoRate(int trackId, int index);
 void trackSetLfoRate(int trackId, int index, float value);
 
@@ -48,4 +81,3 @@ void trackSetLfoDeform(int trackId, int index, float value);
 
 const char* lfoShapeToString(LfoShape shape);
 LfoShape lfoShapeFromString(const std::string& text);
-

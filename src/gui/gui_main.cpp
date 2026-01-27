@@ -38,6 +38,7 @@
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -216,6 +217,9 @@ RECT addTrackButton = {690, 40, 780, 110};
 RECT audioDeviceButton = {40, 115, 340, 145};
 RECT pianoRollToggleButton {};
 RECT effectsToggleButton {};
+RECT synthThreeOscToggleButton {};
+RECT synthWavetableToggleButton {};
+std::array<RECT, kSynthOscillatorCount> synthOscTabButtons {};
 std::array<RECT, kSequencerStepsPerPage> stepRects;
 int currentStepPage = 0;
 int selectedTrackId = 0;
@@ -229,6 +233,7 @@ bool midiPortDropdownOpen = false;
 int midiPortDropdownTrackId = 0;
 bool midiChannelDropdownOpen = false;
 int midiChannelDropdownTrackId = 0;
+std::unordered_map<int, int> gSynthOscTabSelections;
 
 void notifyEffectsWindowTrackListChanged();
 void notifyEffectsWindowActiveTrackChanged(int trackId);
@@ -990,6 +995,7 @@ enum class SliderDragTarget
     SynthDecay,
     SynthSustain,
     SynthRelease,
+    SynthWavetableToggle,
     SampleAttack,
     SampleRelease,
 };
@@ -998,6 +1004,7 @@ struct SliderDragState
 {
     SliderDragTarget target = SliderDragTarget::None;
     int trackId = 0;
+    int oscIndex = -1;
 };
 
 SliderDragState gSliderDrag{};
@@ -1263,10 +1270,43 @@ void ensureTrackTabState(const std::vector<Track>& tracks)
     int ensuredTrackId = ensureSelectedTrack(tracks);
     bool selectionChanged = ensuredTrackId != previousSelected;
 
+    pruneSynthOscTabs(tracks);
+
     if ((changed || selectionChanged) && gMainWindow)
     {
         InvalidateRect(gMainWindow, nullptr, FALSE);
     }
+}
+
+int getSynthOscTabIndex(int trackId)
+{
+    auto it = gSynthOscTabSelections.find(trackId);
+    if (it == gSynthOscTabSelections.end())
+        return 0;
+    return std::clamp(it->second, 0, static_cast<int>(kSynthOscillatorCount) - 1);
+}
+
+void setSynthOscTabIndex(int trackId, int index)
+{
+    if (trackId <= 0)
+        return;
+    int clamped = std::clamp(index, 0, static_cast<int>(kSynthOscillatorCount) - 1);
+    gSynthOscTabSelections[trackId] = clamped;
+}
+
+void pruneSynthOscTabs(const std::vector<Track>& tracks)
+{
+    std::unordered_map<int, int> updated;
+    updated.reserve(tracks.size());
+    for (const auto& track : tracks)
+    {
+        auto it = gSynthOscTabSelections.find(track.id);
+        if (it != gSynthOscTabSelections.end())
+        {
+            updated[track.id] = std::clamp(it->second, 0, static_cast<int>(kSynthOscillatorCount) - 1);
+        }
+    }
+    gSynthOscTabSelections.swap(updated);
 }
 
 bool pointInRect(const RECT& rect, int x, int y)
@@ -4946,10 +4986,11 @@ float sliderValueFromPosition(const SliderControlRects& slider, int x, float min
     return std::clamp(result, minValue, maxValue);
 }
 
-void beginSliderDrag(HWND hwnd, SliderDragTarget target, int trackId)
+void beginSliderDrag(HWND hwnd, SliderDragTarget target, int trackId, int oscIndex = -1)
 {
     gSliderDrag.target = target;
     gSliderDrag.trackId = trackId;
+    gSliderDrag.oscIndex = oscIndex;
     if (hwnd && GetCapture() != hwnd)
     {
         SetCapture(hwnd);
@@ -4963,6 +5004,7 @@ void endSliderDrag(HWND hwnd)
 
     gSliderDrag.target = SliderDragTarget::None;
     gSliderDrag.trackId = 0;
+    gSliderDrag.oscIndex = -1;
     if (hwnd && GetCapture() == hwnd)
     {
         ReleaseCapture();
@@ -4980,6 +5022,7 @@ void updateSliderDrag(HWND hwnd, int x)
         endSliderDrag(hwnd);
         return;
     }
+    int oscIndex = gSliderDrag.oscIndex;
 
     auto applySliderChange = [&](const SliderControlRects& slider, float minValue, float maxValue, auto&& setter) {
         if (slider.track.right <= slider.track.left)
@@ -4998,39 +5041,122 @@ void updateSliderDrag(HWND hwnd, int x)
     {
     case SliderDragTarget::SynthFormant:
         applySliderChange(gSynthFormantSliderControl, kSynthFormantMin, kSynthFormantMax,
-                          [trackId](float value) { trackSetSynthFormant(trackId, value); });
+                          [trackId, oscIndex](float value) {
+                              if (oscIndex >= 0)
+                              {
+                                  trackSetSynthOscFormant(trackId, oscIndex, value);
+                              }
+                              else
+                              {
+                                  trackSetSynthFormant(trackId, value);
+                              }
+                          });
         break;
     case SliderDragTarget::SynthResonance:
         applySliderChange(gSynthResonanceSliderControl, kSynthResonanceMin, kSynthResonanceMax,
-                          [trackId](float value) { trackSetSynthResonance(trackId, value); });
+                          [trackId, oscIndex](float value) {
+                              if (oscIndex >= 0)
+                              {
+                                  trackSetSynthOscResonance(trackId, oscIndex, value);
+                              }
+                              else
+                              {
+                                  trackSetSynthResonance(trackId, value);
+                              }
+                          });
         break;
     case SliderDragTarget::SynthFeedback:
         applySliderChange(gSynthFeedbackSliderControl, kSynthFeedbackMin, kSynthFeedbackMax,
-                          [trackId](float value) { trackSetSynthFeedback(trackId, value); });
+                          [trackId, oscIndex](float value) {
+                              if (oscIndex >= 0)
+                              {
+                                  trackSetSynthOscFeedback(trackId, oscIndex, value);
+                              }
+                              else
+                              {
+                                  trackSetSynthFeedback(trackId, value);
+                              }
+                          });
         break;
     case SliderDragTarget::SynthPitch:
         applySliderChange(gSynthPitchSliderControl, kSynthPitchMin, kSynthPitchMax,
-                          [trackId](float value) { trackSetSynthPitch(trackId, value); });
+                          [trackId, oscIndex](float value) {
+                              if (oscIndex >= 0)
+                              {
+                                  trackSetSynthOscPitch(trackId, oscIndex, value);
+                              }
+                              else
+                              {
+                                  trackSetSynthPitch(trackId, value);
+                              }
+                          });
         break;
     case SliderDragTarget::SynthPitchRange:
         applySliderChange(gSynthPitchRangeSliderControl, kSynthPitchRangeMin, kSynthPitchRangeMax,
-                          [trackId](float value) { trackSetSynthPitchRange(trackId, value); });
+                          [trackId, oscIndex](float value) {
+                              if (oscIndex >= 0)
+                              {
+                                  trackSetSynthOscPitchRange(trackId, oscIndex, value);
+                              }
+                              else
+                              {
+                                  trackSetSynthPitchRange(trackId, value);
+                              }
+                          });
         break;
     case SliderDragTarget::SynthAttack:
         applySliderChange(gSynthAttackSliderControl, kSynthAttackMin, kSynthAttackMax,
-                          [trackId](float value) { trackSetSynthAttack(trackId, value); });
+                          [trackId, oscIndex](float value) {
+                              if (oscIndex >= 0)
+                              {
+                                  trackSetSynthOscAttack(trackId, oscIndex, value);
+                              }
+                              else
+                              {
+                                  trackSetSynthAttack(trackId, value);
+                              }
+                          });
         break;
     case SliderDragTarget::SynthDecay:
         applySliderChange(gSynthDecaySliderControl, kSynthDecayMin, kSynthDecayMax,
-                          [trackId](float value) { trackSetSynthDecay(trackId, value); });
+                          [trackId, oscIndex](float value) {
+                              if (oscIndex >= 0)
+                              {
+                                  trackSetSynthOscDecay(trackId, oscIndex, value);
+                              }
+                              else
+                              {
+                                  trackSetSynthDecay(trackId, value);
+                              }
+                          });
         break;
     case SliderDragTarget::SynthSustain:
         applySliderChange(gSynthSustainSliderControl, kSynthSustainMin, kSynthSustainMax,
-                          [trackId](float value) { trackSetSynthSustain(trackId, value); });
+                          [trackId, oscIndex](float value) {
+                              if (oscIndex >= 0)
+                              {
+                                  trackSetSynthOscSustain(trackId, oscIndex, value);
+                              }
+                              else
+                              {
+                                  trackSetSynthSustain(trackId, value);
+                              }
+                          });
         break;
     case SliderDragTarget::SynthRelease:
         applySliderChange(gSynthReleaseSliderControl, kSynthReleaseMin, kSynthReleaseMax,
-                          [trackId](float value) { trackSetSynthRelease(trackId, value); });
+                          [trackId, oscIndex](float value) {
+                              if (oscIndex >= 0)
+                              {
+                                  trackSetSynthOscRelease(trackId, oscIndex, value);
+                              }
+                              else
+                              {
+                                  trackSetSynthRelease(trackId, value);
+                              }
+                          });
+        break;
+    case SliderDragTarget::SynthWavetableToggle:
         break;
     case SliderDragTarget::SampleAttack:
         applySliderChange(gSampleAttackSliderControl, kSampleAttackMin, kSampleAttackMax,
@@ -5196,6 +5322,12 @@ void drawSynthTrackControls(LICE_SysBitmap& surface, const RECT& client, const T
     gSynthDecaySliderControl = {};
     gSynthSustainSliderControl = {};
     gSynthReleaseSliderControl = {};
+    synthThreeOscToggleButton = {};
+    synthWavetableToggleButton = {};
+    for (auto& rect : synthOscTabButtons)
+    {
+        rect = {};
+    }
 
     if (!activeTrack || activeTrack->type != TrackType::Synth)
         return;
@@ -5208,12 +5340,52 @@ void drawSynthTrackControls(LICE_SysBitmap& surface, const RECT& client, const T
         return;
 
     int topSpacing = 12;
+    int headerSpacing = 6;
+    int toggleHeight = 18;
+    int tabHeight = 20;
+    int wavetableHeight = 18;
     int rowSpacing = 12;
     int rows = 3;
     int slidersPerRow = 3;
     int sliderSpacing = 12;
     int sliderHeight = 70;
     int areaTop = firstStep.bottom + topSpacing;
+
+    bool threeOscEnabled = activeTrack->synthThreeOscEnabled;
+    int oscIndex = threeOscEnabled ? getSynthOscTabIndex(activeTrack->id) : 0;
+    int currentTop = areaTop;
+    int toggleWidth = 100;
+    if (toggleWidth > areaRight - areaLeft)
+        toggleWidth = areaRight - areaLeft;
+    synthThreeOscToggleButton = {areaLeft, currentTop, areaLeft + toggleWidth, currentTop + toggleHeight};
+    currentTop = synthThreeOscToggleButton.bottom + headerSpacing;
+
+    if (threeOscEnabled)
+    {
+        int tabSpacing = 6;
+        int availableWidth = areaRight - areaLeft;
+        int tabWidth = (availableWidth - tabSpacing * (static_cast<int>(kSynthOscillatorCount) - 1)) /
+                       static_cast<int>(kSynthOscillatorCount);
+        if (tabWidth < 20)
+            tabWidth = 20;
+        int tabLeft = areaLeft;
+        for (size_t i = 0; i < kSynthOscillatorCount; ++i)
+        {
+            synthOscTabButtons[i] = {tabLeft, currentTop, tabLeft + tabWidth, currentTop + tabHeight};
+            tabLeft = synthOscTabButtons[i].right + tabSpacing;
+            if (synthOscTabButtons[i].right > areaRight)
+                synthOscTabButtons[i].right = areaRight;
+        }
+        currentTop = synthOscTabButtons[0].bottom + headerSpacing;
+
+        int wavetableWidth = 140;
+        if (wavetableWidth > areaRight - areaLeft)
+            wavetableWidth = areaRight - areaLeft;
+        synthWavetableToggleButton = {areaLeft, currentTop, areaLeft + wavetableWidth, currentTop + wavetableHeight};
+        currentTop = synthWavetableToggleButton.bottom + headerSpacing;
+    }
+
+    areaTop = currentTop;
     int areaBottom = areaTop + rows * sliderHeight + (rows - 1) * rowSpacing;
     if (areaBottom > client.bottom)
     {
@@ -5252,50 +5424,86 @@ void drawSynthTrackControls(LICE_SysBitmap& surface, const RECT& client, const T
         return rect;
     };
 
-    double formantNorm = computeNormalized(activeTrack->formant, kSynthFormantMin, kSynthFormantMax);
+    const SynthOscillatorSettings* oscSettings = nullptr;
+    if (threeOscEnabled && oscIndex >= 0 && oscIndex < static_cast<int>(activeTrack->synthOscillators.size()))
+        oscSettings = &activeTrack->synthOscillators[static_cast<size_t>(oscIndex)];
+
+    float formantValue = oscSettings ? oscSettings->formant : activeTrack->formant;
+    float resonanceValue = oscSettings ? oscSettings->resonance : activeTrack->resonance;
+    float feedbackValue = oscSettings ? oscSettings->feedback : activeTrack->feedback;
+    float pitchValue = oscSettings ? oscSettings->pitch : activeTrack->pitch;
+    float pitchRangeValue = oscSettings ? oscSettings->pitchRange : activeTrack->pitchRange;
+    float attackValue = oscSettings ? oscSettings->attack : activeTrack->synthAttack;
+    float decayValue = oscSettings ? oscSettings->decay : activeTrack->synthDecay;
+    float sustainValue = oscSettings ? oscSettings->sustain : activeTrack->synthSustain;
+    float releaseValue = oscSettings ? oscSettings->release : activeTrack->synthRelease;
+
+    COLORREF toggleFill = threeOscEnabled ? RGB(0, 90, 160) : RGB(50, 50, 50);
+    COLORREF toggleOutline = threeOscEnabled ? RGB(20, 20, 20) : RGB(120, 120, 120);
+    drawButton(surface, synthThreeOscToggleButton, toggleFill, toggleOutline, "3 Osc");
+
+    if (threeOscEnabled)
+    {
+        for (size_t i = 0; i < kSynthOscillatorCount; ++i)
+        {
+            bool isActive = static_cast<int>(i) == oscIndex;
+            COLORREF tabFill = isActive ? RGB(0, 120, 200) : RGB(60, 60, 60);
+            COLORREF tabOutline = isActive ? RGB(20, 20, 20) : RGB(120, 120, 120);
+            std::string label = "Osc " + std::to_string(i + 1);
+            drawButton(surface, synthOscTabButtons[i], tabFill, tabOutline, label.c_str());
+        }
+
+        bool wavetableEnabled = oscSettings ? oscSettings->wavetableEnabled : false;
+        COLORREF wavetableFill = wavetableEnabled ? RGB(0, 90, 160) : RGB(50, 50, 50);
+        COLORREF wavetableOutline = wavetableEnabled ? RGB(20, 20, 20) : RGB(120, 120, 120);
+        drawButton(surface, synthWavetableToggleButton, wavetableFill, wavetableOutline,
+                   wavetableEnabled ? "Wavetable On" : "Wavetable Off");
+    }
+
+    double formantNorm = computeNormalized(formantValue, kSynthFormantMin, kSynthFormantMax);
     RECT formantRect = makeSliderRect(0, 0);
     drawSliderControl(surface, gSynthFormantSliderControl, formantRect, formantNorm,
-                      "Formant", formatNormalizedValue(activeTrack->formant));
+                      "Formant", formatNormalizedValue(formantValue));
 
-    double resonanceNorm = computeNormalized(activeTrack->resonance, kSynthResonanceMin, kSynthResonanceMax);
+    double resonanceNorm = computeNormalized(resonanceValue, kSynthResonanceMin, kSynthResonanceMax);
     RECT resonanceRect = makeSliderRect(0, 1);
     drawSliderControl(surface, gSynthResonanceSliderControl, resonanceRect, resonanceNorm,
-                      "Resonance", formatNormalizedValue(activeTrack->resonance));
+                      "Resonance", formatNormalizedValue(resonanceValue));
 
-    double feedbackNorm = computeNormalized(activeTrack->feedback, kSynthFeedbackMin, kSynthFeedbackMax);
+    double feedbackNorm = computeNormalized(feedbackValue, kSynthFeedbackMin, kSynthFeedbackMax);
     RECT feedbackRect = makeSliderRect(0, 2);
     drawSliderControl(surface, gSynthFeedbackSliderControl, feedbackRect, feedbackNorm,
-                      "Feedback", formatNormalizedValue(activeTrack->feedback));
+                      "Feedback", formatNormalizedValue(feedbackValue));
 
-    double pitchNorm = computeNormalized(activeTrack->pitch, kSynthPitchMin, kSynthPitchMax);
+    double pitchNorm = computeNormalized(pitchValue, kSynthPitchMin, kSynthPitchMax);
     RECT pitchRect = makeSliderRect(1, 0);
     drawSliderControl(surface, gSynthPitchSliderControl, pitchRect, pitchNorm,
-                      "Pitch", formatPitchValue(activeTrack->pitch));
+                      "Pitch", formatPitchValue(pitchValue));
 
-    double pitchRangeNorm = computeNormalized(activeTrack->pitchRange, kSynthPitchRangeMin, kSynthPitchRangeMax);
+    double pitchRangeNorm = computeNormalized(pitchRangeValue, kSynthPitchRangeMin, kSynthPitchRangeMax);
     RECT pitchRangeRect = makeSliderRect(1, 1);
     drawSliderControl(surface, gSynthPitchRangeSliderControl, pitchRangeRect, pitchRangeNorm,
-                      "Pitch Range", formatPitchRangeValue(activeTrack->pitchRange));
+                      "Pitch Range", formatPitchRangeValue(pitchRangeValue));
 
-    double attackNorm = computeNormalized(activeTrack->synthAttack, kSynthAttackMin, kSynthAttackMax);
+    double attackNorm = computeNormalized(attackValue, kSynthAttackMin, kSynthAttackMax);
     RECT attackRect = makeSliderRect(1, 2);
     drawSliderControl(surface, gSynthAttackSliderControl, attackRect, attackNorm,
-                      "Attack", formatSecondsValue(activeTrack->synthAttack));
+                      "Attack", formatSecondsValue(attackValue));
 
-    double decayNorm = computeNormalized(activeTrack->synthDecay, kSynthDecayMin, kSynthDecayMax);
+    double decayNorm = computeNormalized(decayValue, kSynthDecayMin, kSynthDecayMax);
     RECT decayRect = makeSliderRect(2, 0);
     drawSliderControl(surface, gSynthDecaySliderControl, decayRect, decayNorm,
-                      "Decay", formatSecondsValue(activeTrack->synthDecay));
+                      "Decay", formatSecondsValue(decayValue));
 
-    double sustainNorm = computeNormalized(activeTrack->synthSustain, kSynthSustainMin, kSynthSustainMax);
+    double sustainNorm = computeNormalized(sustainValue, kSynthSustainMin, kSynthSustainMax);
     RECT sustainRect = makeSliderRect(2, 1);
     drawSliderControl(surface, gSynthSustainSliderControl, sustainRect, sustainNorm,
-                      "Sustain", formatNormalizedValue(activeTrack->synthSustain));
+                      "Sustain", formatNormalizedValue(sustainValue));
 
-    double releaseNorm = computeNormalized(activeTrack->synthRelease, kSynthReleaseMin, kSynthReleaseMax);
+    double releaseNorm = computeNormalized(releaseValue, kSynthReleaseMin, kSynthReleaseMax);
     RECT releaseRect = makeSliderRect(2, 2);
     drawSliderControl(surface, gSynthReleaseSliderControl, releaseRect, releaseNorm,
-                      "Release", formatSecondsValue(activeTrack->synthRelease));
+                      "Release", formatSecondsValue(releaseValue));
 }
 
 void drawSampleTrackControls(LICE_SysBitmap& surface, const RECT& client, const Track* activeTrack)
@@ -5401,6 +5609,30 @@ void renderUI(LICE_SysBitmap& surface, const RECT& client)
         fallbackTrack.synthDecay = trackGetSynthDecay(activeTrackId);
         fallbackTrack.synthSustain = trackGetSynthSustain(activeTrackId);
         fallbackTrack.synthRelease = trackGetSynthRelease(activeTrackId);
+        fallbackTrack.synthThreeOscEnabled = trackGetSynthThreeOscEnabled(activeTrackId);
+        for (size_t oscIndex = 0; oscIndex < fallbackTrack.synthOscillators.size(); ++oscIndex)
+        {
+            fallbackTrack.synthOscillators[oscIndex].formant =
+                trackGetSynthOscFormant(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].resonance =
+                trackGetSynthOscResonance(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].feedback =
+                trackGetSynthOscFeedback(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].pitch =
+                trackGetSynthOscPitch(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].pitchRange =
+                trackGetSynthOscPitchRange(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].attack =
+                trackGetSynthOscAttack(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].decay =
+                trackGetSynthOscDecay(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].sustain =
+                trackGetSynthOscSustain(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].release =
+                trackGetSynthOscRelease(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].wavetableEnabled =
+                trackGetSynthOscWavetableEnabled(activeTrackId, static_cast<int>(oscIndex));
+        }
         fallbackTrack.sampleAttack = trackGetSampleAttack(activeTrackId);
         fallbackTrack.sampleRelease = trackGetSampleRelease(activeTrackId);
         fallbackTrack.midiChannel = trackGetMidiChannel(activeTrackId);
@@ -6262,6 +6494,62 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         {
             if (showWaveSelector)
             {
+                bool synthThreeOscEnabled = trackGetSynthThreeOscEnabled(activeTrackId);
+                int oscIndex = getSynthOscTabIndex(activeTrackId);
+
+                if (pointInRect(synthThreeOscToggleButton, x, y))
+                {
+                    bool nextState = !synthThreeOscEnabled;
+                    trackSetSynthThreeOscEnabled(activeTrackId, nextState);
+                    if (nextState)
+                    {
+                        float formant = trackGetSynthFormant(activeTrackId);
+                        float resonance = trackGetSynthResonance(activeTrackId);
+                        float feedback = trackGetSynthFeedback(activeTrackId);
+                        float pitch = trackGetSynthPitch(activeTrackId);
+                        float pitchRange = trackGetSynthPitchRange(activeTrackId);
+                        float attack = trackGetSynthAttack(activeTrackId);
+                        float decay = trackGetSynthDecay(activeTrackId);
+                        float sustain = trackGetSynthSustain(activeTrackId);
+                        float release = trackGetSynthRelease(activeTrackId);
+                        for (int i = 0; i < static_cast<int>(kSynthOscillatorCount); ++i)
+                        {
+                            trackSetSynthOscFormant(activeTrackId, i, formant);
+                            trackSetSynthOscResonance(activeTrackId, i, resonance);
+                            trackSetSynthOscFeedback(activeTrackId, i, feedback);
+                            trackSetSynthOscPitch(activeTrackId, i, pitch);
+                            trackSetSynthOscPitchRange(activeTrackId, i, pitchRange);
+                            trackSetSynthOscAttack(activeTrackId, i, attack);
+                            trackSetSynthOscDecay(activeTrackId, i, decay);
+                            trackSetSynthOscSustain(activeTrackId, i, sustain);
+                            trackSetSynthOscRelease(activeTrackId, i, release);
+                        }
+                    }
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                    return 0;
+                }
+
+                if (synthThreeOscEnabled)
+                {
+                    for (size_t i = 0; i < kSynthOscillatorCount; ++i)
+                    {
+                        if (pointInRect(synthOscTabButtons[i], x, y))
+                        {
+                            setSynthOscTabIndex(activeTrackId, static_cast<int>(i));
+                            InvalidateRect(hwnd, nullptr, FALSE);
+                            return 0;
+                        }
+                    }
+
+                    if (pointInRect(synthWavetableToggleButton, x, y))
+                    {
+                        bool enabled = trackGetSynthOscWavetableEnabled(activeTrackId, oscIndex);
+                        trackSetSynthOscWavetableEnabled(activeTrackId, oscIndex, !enabled);
+                        InvalidateRect(hwnd, nullptr, FALSE);
+                        return 0;
+                    }
+                }
+
                 if (pointInRect(gSynthFormantSliderControl.control, x, y))
                 {
                     openTrackTypeTrackId = 0;
@@ -6269,7 +6557,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     midiChannelDropdownOpen = false;
                     midiChannelDropdownTrackId = 0;
                     audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthFormant, activeTrackId);
+                    beginSliderDrag(hwnd, SliderDragTarget::SynthFormant, activeTrackId,
+                                    synthThreeOscEnabled ? oscIndex : -1);
                     updateSliderDrag(hwnd, x);
                     return 0;
                 }
@@ -6281,7 +6570,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     midiChannelDropdownOpen = false;
                     midiChannelDropdownTrackId = 0;
                     audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthResonance, activeTrackId);
+                    beginSliderDrag(hwnd, SliderDragTarget::SynthResonance, activeTrackId,
+                                    synthThreeOscEnabled ? oscIndex : -1);
                     updateSliderDrag(hwnd, x);
                     return 0;
                 }
@@ -6293,7 +6583,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     midiChannelDropdownOpen = false;
                     midiChannelDropdownTrackId = 0;
                     audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthFeedback, activeTrackId);
+                    beginSliderDrag(hwnd, SliderDragTarget::SynthFeedback, activeTrackId,
+                                    synthThreeOscEnabled ? oscIndex : -1);
                     updateSliderDrag(hwnd, x);
                     return 0;
                 }
@@ -6305,7 +6596,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     midiChannelDropdownOpen = false;
                     midiChannelDropdownTrackId = 0;
                     audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthPitch, activeTrackId);
+                    beginSliderDrag(hwnd, SliderDragTarget::SynthPitch, activeTrackId,
+                                    synthThreeOscEnabled ? oscIndex : -1);
                     updateSliderDrag(hwnd, x);
                     return 0;
                 }
@@ -6317,7 +6609,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     midiChannelDropdownOpen = false;
                     midiChannelDropdownTrackId = 0;
                     audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthPitchRange, activeTrackId);
+                    beginSliderDrag(hwnd, SliderDragTarget::SynthPitchRange, activeTrackId,
+                                    synthThreeOscEnabled ? oscIndex : -1);
                     updateSliderDrag(hwnd, x);
                     return 0;
                 }
@@ -6329,7 +6622,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     midiChannelDropdownOpen = false;
                     midiChannelDropdownTrackId = 0;
                     audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthAttack, activeTrackId);
+                    beginSliderDrag(hwnd, SliderDragTarget::SynthAttack, activeTrackId,
+                                    synthThreeOscEnabled ? oscIndex : -1);
                     updateSliderDrag(hwnd, x);
                     return 0;
                 }
@@ -6341,7 +6635,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     midiChannelDropdownOpen = false;
                     midiChannelDropdownTrackId = 0;
                     audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthDecay, activeTrackId);
+                    beginSliderDrag(hwnd, SliderDragTarget::SynthDecay, activeTrackId,
+                                    synthThreeOscEnabled ? oscIndex : -1);
                     updateSliderDrag(hwnd, x);
                     return 0;
                 }
@@ -6353,7 +6648,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     midiChannelDropdownOpen = false;
                     midiChannelDropdownTrackId = 0;
                     audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthSustain, activeTrackId);
+                    beginSliderDrag(hwnd, SliderDragTarget::SynthSustain, activeTrackId,
+                                    synthThreeOscEnabled ? oscIndex : -1);
                     updateSliderDrag(hwnd, x);
                     return 0;
                 }
@@ -6365,7 +6661,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                     midiChannelDropdownOpen = false;
                     midiChannelDropdownTrackId = 0;
                     audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthRelease, activeTrackId);
+                    beginSliderDrag(hwnd, SliderDragTarget::SynthRelease, activeTrackId,
+                                    synthThreeOscEnabled ? oscIndex : -1);
                     updateSliderDrag(hwnd, x);
                     return 0;
                 }
@@ -6723,7 +7020,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         SliderDragTarget contextTarget = SliderDragTarget::None;
         if (synthControls)
         {
-            if (pointInRect(gSynthFormantSliderControl.control, x, y))
+            bool synthThreeOscEnabled = trackGetSynthThreeOscEnabled(activeTrackId);
+            if (synthThreeOscEnabled && pointInRect(synthWavetableToggleButton, x, y))
+                contextTarget = SliderDragTarget::SynthWavetableToggle;
+            else if (pointInRect(gSynthFormantSliderControl.control, x, y))
                 contextTarget = SliderDragTarget::SynthFormant;
             else if (pointInRect(gSynthResonanceSliderControl.control, x, y))
                 contextTarget = SliderDragTarget::SynthResonance;
@@ -6775,34 +7075,122 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         {
             ModMatrixParameter parameter = ModMatrixParameter::Volume;
             bool validParameter = true;
+            bool synthThreeOscEnabled = synthControls ? trackGetSynthThreeOscEnabled(activeTrackId) : false;
+            int oscIndex = synthThreeOscEnabled ? getSynthOscTabIndex(activeTrackId) : -1;
             switch (contextTarget)
             {
             case SliderDragTarget::SynthFormant:
-                parameter = ModMatrixParameter::SynthFormant;
+                if (synthThreeOscEnabled)
+                {
+                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Formant :
+                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Formant :
+                                                 ModMatrixParameter::SynthOsc1Formant;
+                }
+                else
+                {
+                    parameter = ModMatrixParameter::SynthFormant;
+                }
                 break;
             case SliderDragTarget::SynthResonance:
-                parameter = ModMatrixParameter::SynthResonance;
+                if (synthThreeOscEnabled)
+                {
+                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Resonance :
+                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Resonance :
+                                                 ModMatrixParameter::SynthOsc1Resonance;
+                }
+                else
+                {
+                    parameter = ModMatrixParameter::SynthResonance;
+                }
                 break;
             case SliderDragTarget::SynthFeedback:
-                parameter = ModMatrixParameter::SynthFeedback;
+                if (synthThreeOscEnabled)
+                {
+                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Feedback :
+                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Feedback :
+                                                 ModMatrixParameter::SynthOsc1Feedback;
+                }
+                else
+                {
+                    parameter = ModMatrixParameter::SynthFeedback;
+                }
                 break;
             case SliderDragTarget::SynthPitch:
-                parameter = ModMatrixParameter::SynthPitch;
+                if (synthThreeOscEnabled)
+                {
+                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Pitch :
+                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Pitch :
+                                                 ModMatrixParameter::SynthOsc1Pitch;
+                }
+                else
+                {
+                    parameter = ModMatrixParameter::SynthPitch;
+                }
                 break;
             case SliderDragTarget::SynthPitchRange:
-                parameter = ModMatrixParameter::SynthPitchRange;
+                if (synthThreeOscEnabled)
+                {
+                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2PitchRange :
+                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3PitchRange :
+                                                 ModMatrixParameter::SynthOsc1PitchRange;
+                }
+                else
+                {
+                    parameter = ModMatrixParameter::SynthPitchRange;
+                }
                 break;
             case SliderDragTarget::SynthAttack:
-                parameter = ModMatrixParameter::SynthAttack;
+                if (synthThreeOscEnabled)
+                {
+                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Attack :
+                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Attack :
+                                                 ModMatrixParameter::SynthOsc1Attack;
+                }
+                else
+                {
+                    parameter = ModMatrixParameter::SynthAttack;
+                }
                 break;
             case SliderDragTarget::SynthDecay:
-                parameter = ModMatrixParameter::SynthDecay;
+                if (synthThreeOscEnabled)
+                {
+                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Decay :
+                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Decay :
+                                                 ModMatrixParameter::SynthOsc1Decay;
+                }
+                else
+                {
+                    parameter = ModMatrixParameter::SynthDecay;
+                }
                 break;
             case SliderDragTarget::SynthSustain:
-                parameter = ModMatrixParameter::SynthSustain;
+                if (synthThreeOscEnabled)
+                {
+                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Sustain :
+                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Sustain :
+                                                 ModMatrixParameter::SynthOsc1Sustain;
+                }
+                else
+                {
+                    parameter = ModMatrixParameter::SynthSustain;
+                }
                 break;
             case SliderDragTarget::SynthRelease:
-                parameter = ModMatrixParameter::SynthRelease;
+                if (synthThreeOscEnabled)
+                {
+                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Release :
+                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Release :
+                                                 ModMatrixParameter::SynthOsc1Release;
+                }
+                else
+                {
+                    parameter = ModMatrixParameter::SynthRelease;
+                }
+                break;
+            case SliderDragTarget::SynthWavetableToggle:
+                parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Wavetable :
+                           (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Wavetable :
+                                             ModMatrixParameter::SynthOsc1Wavetable;
                 break;
             case SliderDragTarget::SampleAttack:
                 parameter = ModMatrixParameter::SampleAttack;
@@ -6941,4 +7329,3 @@ void initGUI()
         DispatchMessageW(&msg);
     }
 }
-

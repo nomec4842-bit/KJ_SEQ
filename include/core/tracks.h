@@ -37,11 +37,27 @@ enum class LfoShape
     Square,
 };
 
+constexpr size_t kSynthOscillatorCount = 3;
+
 struct LfoSettings
 {
     float rateHz = 1.0f;
     LfoShape shape = LfoShape::Sine;
     float deform = 0.0f;
+};
+
+struct SynthOscillatorSettings
+{
+    float formant = 0.5f;
+    float resonance = 0.2f;
+    float feedback = 0.0f;
+    float pitch = 0.0f;
+    float pitchRange = 12.0f;
+    float attack = 0.01f;
+    float decay = 0.2f;
+    float sustain = 0.8f;
+    float release = 0.3f;
+    bool wavetableEnabled = false;
 };
 
 struct Track
@@ -80,6 +96,8 @@ struct Track
     float synthSustain = 0.8f;
     float synthRelease = 0.3f;
     bool synthPhaseSync = false;
+    bool synthThreeOscEnabled = false;
+    std::array<SynthOscillatorSettings, kSynthOscillatorCount> synthOscillators{};
     float sampleAttack = 0.005f;
     float sampleRelease = 0.3f;
     std::array<LfoSettings, 3> lfoSettings{};

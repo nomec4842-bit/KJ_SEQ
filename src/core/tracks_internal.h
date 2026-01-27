@@ -72,6 +72,7 @@ inline constexpr float kDefaultSynthAttack = 0.01f;
 inline constexpr float kDefaultSynthDecay = 0.2f;
 inline constexpr float kDefaultSynthSustain = 0.8f;
 inline constexpr float kDefaultSynthRelease = 0.3f;
+inline constexpr bool kDefaultSynthWavetableEnabled = false;
 inline constexpr float kMinSampleEnvelopeTime = 0.0f;
 inline constexpr float kMaxSampleEnvelopeTime = 4.0f;
 inline constexpr float kDefaultSampleAttack = 0.005f;
@@ -136,6 +137,17 @@ struct TrackData
     std::atomic<float> synthSustain{kDefaultSynthSustain};
     std::atomic<float> synthRelease{kDefaultSynthRelease};
     std::atomic<bool> synthPhaseSync{false};
+    std::atomic<bool> synthThreeOscEnabled{false};
+    std::array<std::atomic<float>, kSynthOscillatorCount> synthOscFormant;
+    std::array<std::atomic<float>, kSynthOscillatorCount> synthOscResonance;
+    std::array<std::atomic<float>, kSynthOscillatorCount> synthOscFeedback;
+    std::array<std::atomic<float>, kSynthOscillatorCount> synthOscPitch;
+    std::array<std::atomic<float>, kSynthOscillatorCount> synthOscPitchRange;
+    std::array<std::atomic<float>, kSynthOscillatorCount> synthOscAttack;
+    std::array<std::atomic<float>, kSynthOscillatorCount> synthOscDecay;
+    std::array<std::atomic<float>, kSynthOscillatorCount> synthOscSustain;
+    std::array<std::atomic<float>, kSynthOscillatorCount> synthOscRelease;
+    std::array<std::atomic<bool>, kSynthOscillatorCount> synthOscWavetableEnabled;
     std::atomic<float> sampleAttack{kDefaultSampleAttack};
     std::atomic<float> sampleRelease{kDefaultSampleRelease};
     std::array<std::atomic<float>, kDefaultLfoRatesHz.size()> lfoRateHz;
@@ -204,6 +216,20 @@ inline TrackData::TrackData(Track baseTrack)
     track.synthSustain = kDefaultSynthSustain;
     track.synthRelease = kDefaultSynthRelease;
     track.synthPhaseSync = false;
+    track.synthThreeOscEnabled = false;
+    for (auto& osc : track.synthOscillators)
+    {
+        osc.formant = kDefaultFormant;
+        osc.resonance = kDefaultResonance;
+        osc.feedback = kDefaultFeedback;
+        osc.pitch = kDefaultPitch;
+        osc.pitchRange = kDefaultPitchRange;
+        osc.attack = kDefaultSynthAttack;
+        osc.decay = kDefaultSynthDecay;
+        osc.sustain = kDefaultSynthSustain;
+        osc.release = kDefaultSynthRelease;
+        osc.wavetableEnabled = kDefaultSynthWavetableEnabled;
+    }
     track.sampleAttack = kDefaultSampleAttack;
     track.sampleRelease = kDefaultSampleRelease;
     for (size_t i = 0; i < track.lfoSettings.size(); ++i)
@@ -224,6 +250,20 @@ inline TrackData::TrackData(Track baseTrack)
         lfoRateHz[i].store(kDefaultLfoRatesHz[i], std::memory_order_relaxed);
         lfoShape[i].store(kDefaultLfoShapes[i], std::memory_order_relaxed);
         lfoDeform[i].store(kDefaultLfoDeform, std::memory_order_relaxed);
+    }
+    synthThreeOscEnabled.store(false, std::memory_order_relaxed);
+    for (size_t i = 0; i < kSynthOscillatorCount; ++i)
+    {
+        synthOscFormant[i].store(kDefaultFormant, std::memory_order_relaxed);
+        synthOscResonance[i].store(kDefaultResonance, std::memory_order_relaxed);
+        synthOscFeedback[i].store(kDefaultFeedback, std::memory_order_relaxed);
+        synthOscPitch[i].store(kDefaultPitch, std::memory_order_relaxed);
+        synthOscPitchRange[i].store(kDefaultPitchRange, std::memory_order_relaxed);
+        synthOscAttack[i].store(kDefaultSynthAttack, std::memory_order_relaxed);
+        synthOscDecay[i].store(kDefaultSynthDecay, std::memory_order_relaxed);
+        synthOscSustain[i].store(kDefaultSynthSustain, std::memory_order_relaxed);
+        synthOscRelease[i].store(kDefaultSynthRelease, std::memory_order_relaxed);
+        synthOscWavetableEnabled[i].store(kDefaultSynthWavetableEnabled, std::memory_order_relaxed);
     }
     for (int i = 0; i < kMaxSequencerSteps; ++i)
     {
@@ -252,4 +292,3 @@ extern std::shared_mutex gTrackMutex;
 extern int gNextTrackId;
 
 } // namespace track_internal
-
