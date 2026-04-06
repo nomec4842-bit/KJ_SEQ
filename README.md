@@ -16,6 +16,7 @@ If you see `base.lib : fatal error LNK1136: invalid or corrupt file`, the build 
 ## Third-party attributions
 
 - [Cockos WDL LICE](https://www.cockos.com/wdl/): Lightweight Image Compositing Engine used for GUI rendering. Source files from the official Cockos repository are included in `external/wdl`, redistributed under the terms of the Cockos WDL license.
+- Steinberg VST3 SDK is **not** vendored in this repository anymore. If VST3 development assets are needed, install/download them separately and reference them from your local environment.
 - Copyright (C) 2005 and later Cockos Incorporated
     
     Portions copyright other contributors, see each source file for more information
