@@ -214,74 +214,15 @@ bool consumeAudioThreadNotification(AudioThreadNotification& notification)
 
 bool requestTrackVstLoad(int trackId, const std::filesystem::path& path)
 {
-    if (trackId <= 0)
-    {
-        std::cerr << "[VST] Rejecting plug-in load; invalid track id: " << trackId << std::endl;
-        return false;
-    }
-
-    if (path.empty())
-    {
-        std::cerr << "[VST] Rejecting plug-in load; empty plug-in path for track " << trackId << std::endl;
-        return false;
-    }
-
-    auto host = trackEnsureVstHost(trackId);
-    if (!host)
-    {
-        std::cerr << "[VST] Rejecting plug-in load; no host available for track " << trackId << std::endl;
-        return false;
-    }
-
-    auto completion = std::make_shared<std::promise<bool>>();
-
-    VstCommand command{};
-    command.type = VstCommandType::Load;
-    command.trackId = trackId;
-    command.path = path;
-    command.host = std::move(host);
-    command.completion = completion;
-
-    enqueuePluginLoad(std::move(command));
-    // Do not block the GUI thread; the caller can poll host->isPluginReady().
+    (void)trackId;
+    (void)path;
     return true;
 }
 
 bool requestTrackVstUnload(int trackId)
 {
-    if (trackId <= 0)
-    {
-        std::cerr << "[VST] Rejecting plug-in unload; invalid track id: " << trackId << std::endl;
-        return false;
-    }
-
-    auto host = trackGetVstHost(trackId);
-    if (!host)
-    {
-        std::cerr << "[VST] Rejecting plug-in unload; no host available for track " << trackId << std::endl;
-        return false;
-    }
-
-    auto completion = std::make_shared<std::promise<bool>>();
-    auto result = completion->get_future();
-
-    VstCommand command{};
-    command.type = VstCommandType::Unload;
-    command.trackId = trackId;
-    command.host = std::move(host);
-    command.completion = completion;
-
-    std::lock_guard<std::mutex> lock(vstCommandMutex);
-    vstCommandQueue.push_back(std::move(command));
-    vstOperationsPending.fetch_add(1, std::memory_order_acq_rel);
-    vstCommandCv.notify_one();
-
-    // This synchronization is allowed because plugin unloading is non-real-time.
-    constexpr auto kUnloadTimeout = std::chrono::seconds(15);
-    if (result.wait_for(kUnloadTimeout) != std::future_status::ready)
-        return false;
-
-    return result.get();
+    (void)trackId;
+    return true;
 }
 
 static void vstCommandLoop()
@@ -2181,7 +2122,7 @@ void audioLoop() {
 
                 state.midiChannel = desiredMidiChannel;
                 state.midiPort = desiredMidiPort;
-                if ((trackInfo.type != TrackType::MidiOut && trackInfo.type != TrackType::VST) || midiSettingsChanged)
+                if ((trackInfo.type != TrackType::MidiOut && trackInfo.type != TrackType::Synth) || midiSettingsChanged)
                 {
                     state.activeMidiNotes.clear();
                 }
@@ -2239,7 +2180,7 @@ void audioLoop() {
                         state.stepPan = 0.0;
                         state.stepPitchOffset = 0.0;
                     }
-                } else if (trackInfo.type == TrackType::VST) {
+                } else if (trackInfo.type == TrackType::Synth) {
                     if (state.sampleBuffer) {
                         state.sampleBuffer.reset();
                         state.sampleFrameCount = 0;
@@ -2553,7 +2494,7 @@ void audioLoop() {
                                                    : false;
                             if (trackIndex < stepNotesByTrack.size() &&
                                 stepIndex < static_cast<int>(stepNotesByTrack[trackIndex].size()) &&
-                                (trackInfo.type == TrackType::Synth || trackInfo.type == TrackType::MidiOut || trackInfo.type == TrackType::VST))
+                                (trackInfo.type == TrackType::Synth || trackInfo.type == TrackType::MidiOut || trackInfo.type == TrackType::Synth))
                             {
                                 stepNotes = &stepNotesByTrack[trackIndex][stepIndex];
                             }
@@ -2563,7 +2504,7 @@ void audioLoop() {
                                 if (stepAdvanced) {
                                     if (stepNotes && (trackInfo.type == TrackType::Synth ||
                                                       trackInfo.type == TrackType::MidiOut ||
-                                                      trackInfo.type == TrackType::VST)) {
+                                                      trackInfo.type == TrackType::Synth)) {
                                         noteOnNotes.reserve(stepNotes->size());
                                         notesPresent.reserve(stepNotes->size());
                                         for (const auto& noteInfo : *stepNotes) {
@@ -2589,7 +2530,7 @@ void audioLoop() {
 
                         bool stepHasNoteOnEvents = false;
                         if (trackInfo.type == TrackType::Synth || trackInfo.type == TrackType::MidiOut ||
-                            trackInfo.type == TrackType::VST) {
+                            trackInfo.type == TrackType::Synth) {
                             stepHasNoteOnEvents = !noteOnNotes.empty();
                         } else {
                             stepHasNoteOnEvents = triggered;
@@ -2721,7 +2662,7 @@ void audioLoop() {
                                     state.sampleLastRight = 0.0;
                                 }
                             }
-                        } else if (trackInfo.type == TrackType::VST) {
+                        } else if (trackInfo.type == TrackType::Synth) {
                             state.modulation.envelopeValue.store(0.0, std::memory_order_relaxed);
                             auto host = trackInfo.vstHost;
                             if (host && state.vstPrepared) {

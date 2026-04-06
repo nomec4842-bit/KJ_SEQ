@@ -18,7 +18,6 @@ enum class TrackType
     Synth,
     Sample,
     MidiOut,
-    VST,
 };
 
 enum class SynthWaveType
@@ -64,7 +63,7 @@ struct Track
 {
     int id;
     std::string name;
-    TrackType type = TrackType::VST;
+    TrackType type = TrackType::Synth;
     SynthWaveType synthWaveType = SynthWaveType::Sine;
     float volume = 1.0f;
     float pan = 0.0f;

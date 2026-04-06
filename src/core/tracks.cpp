@@ -26,7 +26,7 @@ std::shared_ptr<TrackData> makeTrackData(const std::string& name)
     Track baseTrack;
     baseTrack.id = gNextTrackId++;
     baseTrack.name = name.empty() ? "Track " + std::to_string(baseTrack.id) : name;
-    baseTrack.type = TrackType::VST;
+    baseTrack.type = TrackType::Synth;
     baseTrack.synthWaveType = SynthWaveType::Sine;
     baseTrack.volume = 1.0f;
     baseTrack.pan = 0.0f;
@@ -727,24 +727,12 @@ void trackSetType(int trackId, TrackType type)
             track->type.store(type, std::memory_order_relaxed);
             track->track.type = type;
 
-            if (type == TrackType::VST)
+            if (track->vstHost)
             {
-                if (!track->vstHost)
-                {
-                    track->vstHost = std::make_shared<kj::VST3Host>();
-                    std::cout << "VST track initialized" << std::endl;
-                }
-                track->track.vstHost = track->vstHost;
+                requestTrackVstUnload(trackId);
             }
-            else
-            {
-                if (track->vstHost)
-                {
-                    requestTrackVstUnload(trackId);
-                }
-                track->vstHost.reset();
-                track->track.vstHost.reset();
-            }
+            track->vstHost.reset();
+            track->track.vstHost.reset();
             return;
         }
     }

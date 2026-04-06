@@ -12,8 +12,7 @@ namespace
 
 constexpr uint32_t kTrackTypeMaskAll = modMatrixTrackTypeToMask(TrackType::Synth) |
                                         modMatrixTrackTypeToMask(TrackType::Sample) |
-                                        modMatrixTrackTypeToMask(TrackType::MidiOut) |
-                                        modMatrixTrackTypeToMask(TrackType::VST);
+                                        modMatrixTrackTypeToMask(TrackType::MidiOut);
 constexpr uint32_t kTrackTypeMaskSynth = modMatrixTrackTypeToMask(TrackType::Synth);
 constexpr uint32_t kTrackTypeMaskSample = modMatrixTrackTypeToMask(TrackType::Sample);
 
