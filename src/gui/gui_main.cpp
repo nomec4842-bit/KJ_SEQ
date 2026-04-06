@@ -1178,6 +1178,8 @@ void clampCurrentPageForTrack(int activeTrackId)
     invalidatePianoRollWindow();
 }
 
+void pruneSynthOscTabs(const std::vector<Track>& tracks);
+
 int ensureSelectedTrack(const std::vector<Track>& tracks)
 {
     int previousSelected = selectedTrackId;
