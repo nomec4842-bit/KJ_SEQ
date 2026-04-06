@@ -165,7 +165,7 @@ constexpr int kAudioDeviceDropdownOptionHeight = 24;
 constexpr int kWaveDropdownSpacing = 4;
 constexpr int kWaveDropdownOptionHeight = 24;
 
-const std::array<TrackType, 2> kTrackTypeOptions = {TrackType::MidiOut, TrackType::Synth};
+const std::array<TrackType, 3> kTrackTypeOptions = {TrackType::MidiOut, TrackType::Sample, TrackType::Synth};
 const std::array<SynthWaveType, 4> kSynthWaveOptions = {SynthWaveType::Sine, SynthWaveType::Square,
                                                         SynthWaveType::Saw, SynthWaveType::Triangle};
 
