@@ -167,7 +167,7 @@ constexpr int kAudioDeviceDropdownOptionHeight = 24;
 constexpr int kWaveDropdownSpacing = 4;
 constexpr int kWaveDropdownOptionHeight = 24;
 
-const std::array<TrackType, 2> kTrackTypeOptions = {TrackType::MidiOut, TrackType::VST};
+const std::array<TrackType, 2> kTrackTypeOptions = {TrackType::MidiOut, TrackType::Synth};
 const std::array<SynthWaveType, 4> kSynthWaveOptions = {SynthWaveType::Sine, SynthWaveType::Square,
                                                         SynthWaveType::Saw, SynthWaveType::Triangle};
 
@@ -1361,12 +1361,14 @@ std::string trackTypeToString(TrackType type)
 {
     switch (type)
     {
+    case TrackType::Sample:
+        return "Sample";
     case TrackType::MidiOut:
         return "MIDI Out";
-    case TrackType::VST:
-        return "VST";
+    case TrackType::Synth:
+        return "Synth";
     }
-    return "VST";
+    return "Synth";
 }
 
 std::string synthWaveTypeToString(SynthWaveType type)
@@ -5670,13 +5672,10 @@ void renderUI(LICE_SysBitmap& surface, const RECT& client)
             activeMidiPort = activeTrackPtr->midiPort;
             activeMidiPortName = activeTrackPtr->midiPortName;
             break;
-        case TrackType::VST:
-            break;
         }
     }
 
-    vstUiState = kj::queryVstUiState(activeTrackId, activeTrackPtr);
-    showVstLoader = vstUiState.showLoader;
+    showVstLoader = false;
 
     if (waveDropdownOpen && (!showWaveSelector || waveDropdownTrackId != activeTrackId))
     {
@@ -5702,7 +5701,7 @@ void renderUI(LICE_SysBitmap& surface, const RECT& client)
                    RGB(50, 50, 50), RGB(120, 120, 120),
                    "Load Sample");
     }
-    else if (showVstLoader)
+    else if (false && showVstLoader)
     {
         drawButton(surface, loadVstButton,
                    RGB(50, 50, 50), RGB(120, 120, 120),
@@ -6263,7 +6262,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         if (const Track* activeTrack = findTrackById(tracks, activeTrackId))
         {
             showSampleLoader = activeTrack->type == TrackType::Sample;
-            showVstLoader = activeTrack->type == TrackType::VST;
+            showVstLoader = activeTrack->type == TrackType::Synth;
             showWaveSelector = activeTrack->type == TrackType::Synth;
             showMidiChannelSelector = activeTrack->type == TrackType::MidiOut;
             showMidiPortSelector = activeTrack->type == TrackType::MidiOut;
@@ -6273,7 +6272,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         {
             TrackType trackType = trackGetType(activeTrackId);
             showSampleLoader = trackType == TrackType::Sample;
-            showVstLoader = trackType == TrackType::VST;
+            showVstLoader = trackType == TrackType::Synth;
             showWaveSelector = trackType == TrackType::Synth;
             showMidiChannelSelector = trackType == TrackType::MidiOut;
             showMidiPortSelector = trackType == TrackType::MidiOut;
