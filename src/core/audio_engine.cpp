@@ -2454,9 +2454,6 @@ void audioLoop() {
                                     state.sampleLastRight = 0.0;
                                 }
                             }
-                        } else if (trackInfo.type == TrackType::Synth) {
-                            state.modulation.envelopeValue.store(0.0, std::memory_order_relaxed);
-                            state.activeMidiNotes.clear();
                         } else if (trackInfo.type == TrackType::MidiOut) {
                             state.modulation.envelopeValue.store(0.0, std::memory_order_relaxed);
                             state.samplePlaying = false;
@@ -2500,8 +2497,7 @@ void audioLoop() {
 
                                 state.activeMidiNotes = std::move(notesThisStep);
                             }
-
-                        } else {
+                        } else if (trackInfo.type == TrackType::Synth) {
                             if (!gate) {
                                 for (auto& voice : state.voices) {
                                     if (voice.envelopeStage != EnvelopeStage::Idle &&
@@ -2734,6 +2730,10 @@ void audioLoop() {
                                 trackLeft = filteredLeft * (1.0 - blend) + trackLeft * blend;
                                 trackRight = filteredRight * (1.0 - blend) + trackRight * blend;
                             }
+                        } else {
+                            state.modulation.envelopeValue.store(0.0, std::memory_order_relaxed);
+                            state.activeMidiNotes.clear();
+                            state.voices.clear();
                         }
 
                         if (state.resetScheduled) {
