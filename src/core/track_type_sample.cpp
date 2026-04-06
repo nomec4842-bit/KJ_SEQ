@@ -1,32 +1,76 @@
 #include "core/track_type_sample.h"
-#include "core/tracks.h"
+#include "core/tracks_internal.h"
 
-// Legacy sampler track logic has been moved to track_type_sample_legacy_unused.cpp
-// leaving this active implementation as a no-op while sampler tracks are removed.
+#include <algorithm>
+#include <memory>
+#include <shared_mutex>
+#include <utility>
 
-float trackGetSampleAttack(int)
+using namespace track_internal;
+
+float trackGetSampleAttack(int trackId)
 {
-    return 0.005f;
+    auto track = findTrackData(trackId);
+    if (!track)
+        return kDefaultSampleAttack;
+
+    float value = track->sampleAttack.load(std::memory_order_relaxed);
+    return std::clamp(value, kMinSampleEnvelopeTime, kMaxSampleEnvelopeTime);
 }
 
-void trackSetSampleAttack(int, float)
+void trackSetSampleAttack(int trackId, float value)
 {
+    auto track = findTrackData(trackId);
+    if (!track)
+        return;
+
+    float clamped = std::clamp(value, kMinSampleEnvelopeTime, kMaxSampleEnvelopeTime);
+    track->sampleAttack.store(clamped, std::memory_order_relaxed);
+    track->track.sampleAttack = clamped;
 }
 
-float trackGetSampleRelease(int)
+float trackGetSampleRelease(int trackId)
 {
-    return 0.3f;
+    auto track = findTrackData(trackId);
+    if (!track)
+        return kDefaultSampleRelease;
+
+    float value = track->sampleRelease.load(std::memory_order_relaxed);
+    return std::clamp(value, kMinSampleEnvelopeTime, kMaxSampleEnvelopeTime);
 }
 
-void trackSetSampleRelease(int, float)
+void trackSetSampleRelease(int trackId, float value)
 {
+    auto track = findTrackData(trackId);
+    if (!track)
+        return;
+
+    float clamped = std::clamp(value, kMinSampleEnvelopeTime, kMaxSampleEnvelopeTime);
+    track->sampleRelease.store(clamped, std::memory_order_relaxed);
+    track->track.sampleRelease = clamped;
 }
 
-std::shared_ptr<const SampleBuffer> trackGetSampleBuffer(int)
+std::shared_ptr<const SampleBuffer> trackGetSampleBuffer(int trackId)
 {
+    std::shared_lock<std::shared_mutex> lock(gTrackMutex);
+    for (const auto& track : gTracks)
+    {
+        if (track->track.id == trackId)
+            return track->sampleBuffer;
+    }
+
     return {};
 }
 
-void trackSetSampleBuffer(int, std::shared_ptr<const SampleBuffer>)
+void trackSetSampleBuffer(int trackId, std::shared_ptr<const SampleBuffer> buffer)
 {
+    std::unique_lock<std::shared_mutex> lock(gTrackMutex);
+    for (auto& track : gTracks)
+    {
+        if (track->track.id == trackId)
+        {
+            track->sampleBuffer = std::move(buffer);
+            return;
+        }
+    }
 }
