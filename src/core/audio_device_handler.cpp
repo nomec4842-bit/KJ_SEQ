@@ -92,7 +92,6 @@ void logInfo(const std::wstring& message) {
 
 namespace {
 std::atomic<bool> running_{false};
-std::thread renderThread_{};
 HANDLE samplesReadyEvent_ = nullptr;
 }
 
@@ -638,19 +637,6 @@ bool AudioDeviceHandler::start() {
         return false;
     }
 
-    if (renderThread_.joinable()) {
-        running_.store(false);
-        lock.unlock();
-        renderThread_.join();
-        lock.lock();
-    }
-    if (dspThread_.joinable()) {
-        dspRunning_.store(false, std::memory_order_release);
-        lock.unlock();
-        dspThread_.join();
-        lock.lock();
-    }
-
     HRESULT hr = client_->Start();
     if (FAILED(hr)) {
         logFailure(L"IAudioClient::Start", hr);
@@ -658,113 +644,11 @@ bool AudioDeviceHandler::start() {
     }
     logInfo(L"Audio client started successfully");
     streamStarted_.store(true, std::memory_order_release);
-
-    const UINT32 bufferFrameCount = bufferFrameCount_;
-    const WORD channelCount = mixFormat_ ? mixFormat_->nChannels : 0;
-
-    initializeRingBuffer(engineBlockSize, channelCount);
-
-    dspRunning_.store(true);
-    dspThread_ = std::thread([this]() {
-        const uint32_t frames = engineBlockSize;
-        uint32_t channels = ringBufferChannels_;
-        std::vector<float> interleavedBlock(static_cast<size_t>(frames) * channels, 0.0f);
-
-        tempChannelBuffers_.resize(channels);
-        tempChannelPointers_.resize(channels);
-
-        for (uint32_t c = 0; c < channels; ++c) {
-            tempChannelBuffers_[c].assign(frames, 0.0f);
-            tempChannelPointers_[c] = tempChannelBuffers_[c].data();
-        }
-
-        while (dspRunning_.load(std::memory_order_relaxed)) {
-            for (uint32_t c = 0; c < channels; ++c) {
-                std::fill(tempChannelBuffers_[c].begin(), tempChannelBuffers_[c].end(), 0.0f);
-            }
-
-            // Interleave processed buffers
-            for (uint32_t f = 0; f < frames; ++f) {
-                for (uint32_t c = 0; c < channels; ++c) {
-                    interleavedBlock[f * channels + c] = tempChannelBuffers_[c][f];
-                }
-            }
-
-            while (dspRunning_.load(std::memory_order_relaxed) && !pushAudioBlock(interleavedBlock.data())) {
-                // Busy wait to maintain real-time constraints (no sleeping)
-            }
-        }
-    });
-
-    running_.store(true);
-    renderThread_ = std::thread([this, bufferFrameCount, channelCount]() mutable {
-        HANDLE hEvent = samplesReadyEvent_;
-        const UINT32 bufferFrameCountLocal = bufferFrameCount;
-        std::vector<float> tempBlock(static_cast<size_t>(engineBlockSize) * channelCount, 0.0f);
-
-        while (running_.load()) {
-
-            // Wait for WASAPI to request more data
-            DWORD waitResult = WaitForSingleObject(hEvent, 200);
-            if (waitResult != WAIT_OBJECT_0)
-                continue;
-
-            UINT32 padding = 0;
-            if (FAILED(client_->GetCurrentPadding(&padding)))
-                continue;
-
-            UINT32 framesToWrite = bufferFrameCountLocal - padding;
-            if (framesToWrite == 0)
-                continue;
-
-            BYTE* data = nullptr;
-            if (FAILED(renderClient_->GetBuffer(framesToWrite, &data)))
-                continue;
-
-            float* interleavedOut = reinterpret_cast<float*>(data);
-            const uint32_t channels = mixFormat_->nChannels;
-
-            uint32_t framesRemaining = framesToWrite;
-            size_t outputOffset = 0;
-            bool blockAvailable = false;
-
-            while (framesRemaining > 0) {
-                if (!popAudioBlock(tempBlock.data())) {
-                    std::fill(interleavedOut + outputOffset * channels,
-                              interleavedOut + (outputOffset + framesRemaining) * channels, 0.0f);
-                    break;
-                }
-
-                blockAvailable = true;
-                const uint32_t framesFromBlock = std::min(engineBlockSize, framesRemaining);
-                const size_t samplesToCopy = static_cast<size_t>(framesFromBlock) * channels;
-                std::memcpy(interleavedOut + outputOffset * channels, tempBlock.data(),
-                            samplesToCopy * sizeof(float));
-
-                framesRemaining -= framesFromBlock;
-                outputOffset += framesFromBlock;
-            }
-
-            if (!blockAvailable && framesRemaining == framesToWrite) {
-                std::fill(interleavedOut, interleavedOut + framesToWrite * channels, 0.0f);
-            }
-
-            notifyCallbackExecuted();
-
-            renderClient_->ReleaseBuffer(framesToWrite, blockAvailable ? 0 : AUDCLNT_BUFFERFLAGS_SILENT);
-        }
-    });
     return true;
 }
 
 void AudioDeviceHandler::stop() {
     std::lock_guard<std::mutex> lock(stateMutex_);
-    running_.store(false);
-    dspRunning_.store(false, std::memory_order_release);
-    if (renderThread_.joinable())
-        renderThread_.join();
-    if (dspThread_.joinable())
-        dspThread_.join();
     if (client_) {
         HRESULT hr = client_->Stop();
         if (FAILED(hr)) {
