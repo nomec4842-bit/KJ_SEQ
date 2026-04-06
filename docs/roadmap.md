@@ -5,7 +5,7 @@
 - Keep documentation and host implementations aligned with the currently integrated VST3 SDK.
 
 ## Periodic idle callbacks for VST3 views
-Plug-ins compiled against older VST3 headers may still expect `IPlugView::onIdle`, even though the method was removed from the official SDK. The project currently vendors the VST3 SDK at version **3.8.0**, which no longer declares `onIdle`, so the host must offer an equivalent timer-driven mechanism.
+Plug-ins compiled against older VST3 headers may still expect `IPlugView::onIdle`, even though the method was removed from the official SDK. The host targets VST3 SDK version **3.8.0** semantics, which no longer declare `onIdle`, so the host must offer an equivalent timer-driven mechanism.
 
 Planned work:
 - Add a host-managed idle service that attaches a periodic timer to each active view, invoking plug-in idle handlers (when present) at a steady cadence suitable for UI housekeeping.
