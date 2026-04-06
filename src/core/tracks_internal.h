@@ -264,17 +264,8 @@ inline TrackData::TrackData(Track baseTrack)
     }
     for (int i = 0; i < kMaxSequencerSteps; ++i)
     {
-        bool enabled = (i < kSequencerStepsPerPage) ? (i % 4 == 0) : false;
-        steps[i].store(enabled, std::memory_order_relaxed);
+        steps[i].store(false, std::memory_order_relaxed);
         notes[i].store(kDefaultMidiNote, std::memory_order_relaxed);
-        if (enabled)
-        {
-            StepNoteEntry entry{};
-            entry.midiNote = kDefaultMidiNote;
-            entry.velocity = kTrackStepVelocityMax;
-            entry.sustain = false;
-            stepNotes[i].push_back(entry);
-        }
         stepVelocity[i].store(kTrackStepVelocityMax, std::memory_order_relaxed);
         stepPan[i].store(0.0f, std::memory_order_relaxed);
         stepPitch[i].store(0.0f, std::memory_order_relaxed);
