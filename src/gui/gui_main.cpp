@@ -6770,8 +6770,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         if (pointInRect(playButton, x, y))
         {
             bool playing = isPlaying.load(std::memory_order_relaxed);
-            isPlaying.store(!playing, std::memory_order_relaxed);
-            requestSequencerReset();
+            bool newPlaying = !playing;
+            isPlaying.store(newPlaying, std::memory_order_relaxed);
+            if (newPlaying)
+            {
+                requestSequencerReset();
+            }
             InvalidateRect(hwnd, nullptr, FALSE);
             invalidatePianoRollWindow();
             return 0;
