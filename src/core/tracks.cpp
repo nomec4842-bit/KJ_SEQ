@@ -2,7 +2,6 @@
 #include "core/tracks_internal.h"
 #include "core/audio_engine.h"
 
-#include "hosting/VST3Host.h"
 
 #include <algorithm>
 #include <cmath>
@@ -76,7 +75,6 @@ std::shared_ptr<TrackData> makeTrackData(const std::string& name)
     baseTrack.midiChannel = kDefaultMidiChannel;
     baseTrack.midiPort = kDefaultMidiPort;
     baseTrack.midiPortName.clear();
-    baseTrack.vstHost.reset();
     return std::make_shared<TrackData>(std::move(baseTrack));
 }
 
@@ -121,7 +119,6 @@ Track addTrack(const std::string& name)
     Track result = trackData->track;
     result.type = trackData->type.load(std::memory_order_relaxed);
     result.synthWaveType = trackData->waveType.load(std::memory_order_relaxed);
-    result.vstHost = trackData->vstHost;
     result.midiPort = trackData->midiPort.load(std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> lock(trackData->midiPortMutex);
@@ -199,7 +196,6 @@ std::vector<Track> getTracks()
             std::lock_guard<std::mutex> lock(track->midiPortMutex);
             info.midiPortName = track->midiPortName;
         }
-        info.vstHost = track->vstHost;
         result.push_back(std::move(info));
     }
     return result;
@@ -727,12 +723,6 @@ void trackSetType(int trackId, TrackType type)
             track->type.store(type, std::memory_order_relaxed);
             track->track.type = type;
 
-            if (track->vstHost)
-            {
-                requestTrackVstUnload(trackId);
-            }
-            track->vstHost.reset();
-            track->track.vstHost.reset();
             return;
         }
     }

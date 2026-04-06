@@ -4,7 +4,6 @@
 #include <cstring>
 #include <functional>
 
-#include "hosting/VST3Host.h"
 
 std::atomic<bool> AudioDeviceHandler::streamStarted_{false};
 std::atomic<bool> AudioDeviceHandler::callbackInvoked_{false};
@@ -106,10 +105,6 @@ AudioDeviceHandler::AudioDeviceHandler() = default;
 
 AudioDeviceHandler::~AudioDeviceHandler() {
     shutdown();
-}
-
-void AudioDeviceHandler::setVSTHost(kj::VST3Host* host) {
-    vstHost_ = host;
 }
 
 void AudioDeviceHandler::registerStreamCallback(AudioStreamCallback callback, void* userData) {
@@ -672,13 +667,7 @@ bool AudioDeviceHandler::start() {
     dspRunning_.store(true);
     dspThread_ = std::thread([this]() {
         const uint32_t frames = engineBlockSize;
-        // Determine channel count based on VST3 bus arrangement
         uint32_t channels = ringBufferChannels_;
-        if (vstHost_) {
-            uint32_t expected = vstHost_ ? vstHost_->getOutputChannelCount() : channels;
-            if (expected > 0)
-                channels = expected;
-        }
         std::vector<float> interleavedBlock(static_cast<size_t>(frames) * channels, 0.0f);
 
         tempChannelBuffers_.resize(channels);
@@ -690,20 +679,8 @@ bool AudioDeviceHandler::start() {
         }
 
         while (dspRunning_.load(std::memory_order_relaxed)) {
-            // Prepare input buffers (currently silence) and process via VST host
-            if (vstHost_) {
-                // Correct overload: (inputs, numInputs, outputs, numOutputs, samples)
-                vstHost_->process(
-                    nullptr,                 // no audio inputs
-                    0,                       // num input channels
-                    tempChannelPointers_.data(),
-                    static_cast<int>(channels),
-                    static_cast<int>(frames)
-                );
-            } else {
-                for (uint32_t c = 0; c < channels; ++c) {
-                    std::fill(tempChannelBuffers_[c].begin(), tempChannelBuffers_[c].end(), 0.0f);
-                }
+            for (uint32_t c = 0; c < channels; ++c) {
+                std::fill(tempChannelBuffers_[c].begin(), tempChannelBuffers_[c].end(), 0.0f);
             }
 
             // Interleave processed buffers
@@ -1076,4 +1053,3 @@ std::vector<AudioDeviceHandler::DeviceInfo> AudioDeviceHandler::enumerateRenderD
 }
 
 #endif  // defined(_WIN32) || defined(_MSC_VER) || defined(__MINGW32__)
-

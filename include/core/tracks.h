@@ -2,7 +2,6 @@
 
 #include <array>
 #include <cstddef>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -10,7 +9,6 @@ struct SampleBuffer;
 
 namespace kj
 {
-class VST3Host;
 }
 
 enum class TrackType
@@ -103,7 +101,6 @@ struct Track
     int midiChannel = 1;
     int midiPort = -1;
     std::wstring midiPortName;
-    std::shared_ptr<kj::VST3Host> vstHost;
 };
 
 constexpr float kTrackStepVelocityMin = 0.0f;

@@ -7,13 +7,11 @@
 #include "core/track_type_midi.h"
 #include "core/track_type_sample.h"
 #include "core/track_type_synth.h"
-#include "core/track_type_vst.h"
 #include "gui/gui_refresh.h"
 #include "gui/menu_commands.h"
 #include "gui/compressor_window.h"
 #include "gui/mod_matrix_window.h"
 #include "gui/waveform_window.h"
-#include "hosting/VSTGuiThread.h"
 #include "wdl/lice/lice.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -202,8 +200,6 @@ LONG computeDropdownStartTop(const RECT& anchor, int optionCount, int optionHeig
 
 RECT playButton = {40, 40, 180, 110};
 RECT loadSampleButton = {200, 40, 340, 110};
-RECT loadVstButton = {200, 40, 270, 110};
-RECT showVstButton = {270, 40, 340, 110};
 RECT waveSelectButton = {200, 40, 340, 110};
 RECT midiPortButton = {200, 40, 340, 75};
 RECT midiChannelButton = {200, 80, 340, 110};
@@ -5640,17 +5636,14 @@ void renderUI(LICE_SysBitmap& surface, const RECT& client)
         fallbackTrack.midiChannel = trackGetMidiChannel(activeTrackId);
         fallbackTrack.midiPort = trackGetMidiPort(activeTrackId);
         fallbackTrack.midiPortName = trackGetMidiPortName(activeTrackId);
-        fallbackTrack.vstHost = trackGetVstHost(activeTrackId);
         activeTrackPtr = &fallbackTrack;
     }
 
     bool showSampleLoader = false;
-    bool showVstLoader = false;
     bool showWaveSelector = false;
     bool showMidiChannelSelector = false;
     bool showMidiPortSelector = false;
     SynthWaveType activeWaveType = SynthWaveType::Sine;
-    kj::VstUiState vstUiState{};
     int activeMidiChannel = 1;
     int activeMidiPort = -1;
     std::wstring activeMidiPortName;
@@ -5675,8 +5668,6 @@ void renderUI(LICE_SysBitmap& surface, const RECT& client)
         }
     }
 
-    showVstLoader = false;
-
     if (waveDropdownOpen && (!showWaveSelector || waveDropdownTrackId != activeTrackId))
     {
         waveDropdownOpen = false;
@@ -5700,17 +5691,6 @@ void renderUI(LICE_SysBitmap& surface, const RECT& client)
         drawButton(surface, loadSampleButton,
                    RGB(50, 50, 50), RGB(120, 120, 120),
                    "Load Sample");
-    }
-    else if (false && showVstLoader)
-    {
-        drawButton(surface, loadVstButton,
-                   RGB(50, 50, 50), RGB(120, 120, 120),
-                   "Load VST");
-
-        COLORREF showFill = vstUiState.editorAvailable ? RGB(50, 50, 50) : (vstUiState.editorLoading ? RGB(40, 40, 40) : RGB(30, 30, 30));
-        COLORREF showOutline = vstUiState.editorAvailable ? RGB(120, 120, 120) : (vstUiState.editorLoading ? RGB(100, 100, 100) : RGB(80, 80, 80));
-        const char* showLabel = vstUiState.editorLoading ? "Show VST (Loading)" : "Show VST";
-        drawButton(surface, showVstButton, showFill, showOutline, showLabel);
     }
     else if (showMidiChannelSelector)
     {
@@ -6086,10 +6066,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg)
     {
-    case kj::kShowVstEditorMessage:
-        if (kj::handleShowVstEditor(hwnd, static_cast<int>(wParam)))
-            return 0;
-        break;
     case WM_CREATE:
         gMainWindow = hwnd;
         buildStepRects();
@@ -6254,29 +6230,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         }
 
         bool showSampleLoader = false;
-        bool showVstLoader = false;
         bool showWaveSelector = false;
         bool showMidiChannelSelector = false;
         bool showMidiPortSelector = false;
-        kj::VstUiState vstUiState{};
         if (const Track* activeTrack = findTrackById(tracks, activeTrackId))
         {
             showSampleLoader = activeTrack->type == TrackType::Sample;
-            showVstLoader = activeTrack->type == TrackType::Synth;
             showWaveSelector = activeTrack->type == TrackType::Synth;
             showMidiChannelSelector = activeTrack->type == TrackType::MidiOut;
             showMidiPortSelector = activeTrack->type == TrackType::MidiOut;
-            vstUiState = kj::queryVstUiState(activeTrackId, activeTrack);
         }
         else if (activeTrackId > 0)
         {
             TrackType trackType = trackGetType(activeTrackId);
             showSampleLoader = trackType == TrackType::Sample;
-            showVstLoader = trackType == TrackType::Synth;
             showWaveSelector = trackType == TrackType::Synth;
             showMidiChannelSelector = trackType == TrackType::MidiOut;
             showMidiPortSelector = trackType == TrackType::MidiOut;
-            vstUiState = kj::queryVstUiState(activeTrackId, nullptr);
         }
 
         if (!showWaveSelector)
@@ -6830,37 +6800,6 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 InvalidateRect(hwnd, nullptr, FALSE);
             }
 
-            return 0;
-        }
-
-        if (showVstLoader && pointInRect(showVstButton, x, y))
-        {
-            if (!vstUiState.host)
-            {
-                std::cout << "[GUI] No VST host available for track." << std::endl;
-                return 0;
-            }
-
-            if (!vstUiState.editorAvailable)
-            {
-                if (vstUiState.editorLoading)
-                {
-                    std::cout << "[GUI] VST3 plug-in is still loading; editor will open when ready." << std::endl;
-                }
-                else
-                {
-                    std::cout << "[GUI] No VST3 plug-in is ready to display." << std::endl;
-                }
-                return 0;
-            }
-
-            PostMessageW(hwnd, kj::kShowVstEditorMessage, static_cast<WPARAM>(activeTrackId), 0);
-            return 0;
-        }
-
-        if (showVstLoader && pointInRect(loadVstButton, x, y))
-        {
-            kj::promptAndLoadVstPlugin(hwnd, activeTrackId);
             return 0;
         }
 

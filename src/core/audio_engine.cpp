@@ -37,7 +37,6 @@
 #include "core/tracks.h"
 #include "core/track_type_sample.h"
 #include "core/track_type_synth.h"
-#include "core/track_type_vst.h"
 #include "core/sample_loader.h"
 #include "core/sequencer.h"
 #include "core/audio_device_handler.h"
@@ -47,7 +46,6 @@
 #include "core/mod_matrix.h"
 #include "core/mod_matrix_parameters.h"
 #include "audio/thread_pool.h"
-#include "hosting/VST3Host.h"
 
 std::atomic<bool> isPlaying = false;
 static std::atomic<bool> running{true};
@@ -102,49 +100,6 @@ static std::array<AudioThreadNotification, kAudioNotificationCapacity> gAudioNot
 static std::atomic<std::size_t> gAudioNotificationHead{0};
 static std::atomic<std::size_t> gAudioNotificationTail{0};
 
-enum class VstCommandType
-{
-    Load,
-    Unload,
-};
-
-struct VstCommand
-{
-    VstCommandType type = VstCommandType::Load;
-    int trackId = -1;
-    std::filesystem::path path;
-    std::shared_ptr<kj::VST3Host> host;
-    std::shared_ptr<std::promise<bool>> completion;
-};
-
-static std::mutex vstCommandMutex;
-static std::deque<VstCommand> vstCommandQueue;
-static std::condition_variable vstCommandCv;
-static std::atomic<int> vstOperationsPending{0};
-static std::thread vstCommandThread;
-
-static void enqueuePluginLoad(VstCommand&& command)
-{
-    // Plugin loading happens off the audio thread, so the request queue can
-    // use conventional synchronization primitives without affecting the
-    // real-time callback.
-    std::lock_guard<std::mutex> lock(vstCommandMutex);
-    vstCommandQueue.push_back(std::move(command));
-    vstOperationsPending.fetch_add(1, std::memory_order_acq_rel);
-    vstCommandCv.notify_one();
-}
-
-constexpr std::size_t kVstResetCapacity = 128;
-
-struct VstResetBatch
-{
-    std::array<int, kVstResetCapacity> ids{};
-    std::size_t count = 0;
-};
-
-static std::array<VstResetBatch, 2> gVstResetBatches{};
-static std::atomic<int> gPublishedVstBatch{-1};
-static int gVstWriteBatchIndex = 0;
 
 static void writeWaveformSamples(const float* samples, std::size_t sampleCount)
 {
@@ -175,29 +130,6 @@ static void enqueueAudioThreadNotification(const std::wstring& title, const std:
     gAudioNotificationTail.store(nextTail, std::memory_order_release);
 }
 
-static void enqueueVstReset(int trackId)
-{
-    if (trackId <= 0)
-        return;
-
-    auto& batch = gVstResetBatches[gVstWriteBatchIndex];
-    if (batch.count < batch.ids.size())
-    {
-        batch.ids[batch.count++] = trackId;
-    }
-}
-
-static void publishVstResetBatch()
-{
-    auto& batch = gVstResetBatches[gVstWriteBatchIndex];
-    if (batch.count == 0)
-        return;
-
-    gPublishedVstBatch.store(gVstWriteBatchIndex, std::memory_order_release);
-    gVstWriteBatchIndex ^= 1;
-    gVstResetBatches[gVstWriteBatchIndex].count = 0;
-}
-
 bool consumeAudioThreadNotification(AudioThreadNotification& notification)
 {
     const std::size_t head = gAudioNotificationHead.load(std::memory_order_acquire);
@@ -210,75 +142,6 @@ bool consumeAudioThreadNotification(AudioThreadNotification& notification)
     const std::size_t nextHead = (head + 1) % kAudioNotificationCapacity;
     gAudioNotificationHead.store(nextHead, std::memory_order_release);
     return true;
-}
-
-bool requestTrackVstLoad(int trackId, const std::filesystem::path& path)
-{
-    (void)trackId;
-    (void)path;
-    return true;
-}
-
-bool requestTrackVstUnload(int trackId)
-{
-    (void)trackId;
-    return true;
-}
-
-static void vstCommandLoop()
-{
-    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-
-    while (running.load(std::memory_order_acquire))
-    {
-        std::unique_lock<std::mutex> lock(vstCommandMutex);
-        vstCommandCv.wait(lock, [] {
-            return !vstCommandQueue.empty() || !running.load(std::memory_order_acquire);
-        });
-
-        if (!running.load(std::memory_order_acquire) && vstCommandQueue.empty())
-            break;
-
-        if (vstCommandQueue.empty())
-            continue;
-
-        auto command = std::move(vstCommandQueue.front());
-        vstCommandQueue.pop_front();
-        lock.unlock();
-
-        bool success = (command.host != nullptr);
-        if (command.host)
-        {
-            if (command.type == VstCommandType::Load)
-                success = command.host->load(command.path.string());
-            else
-                command.host->unload();
-        }
-
-        if (command.completion)
-            command.completion->set_value(success);
-
-        if (command.trackId > 0)
-        {
-            enqueueVstReset(command.trackId);
-            publishVstResetBatch();
-        }
-
-        vstOperationsPending.fetch_sub(1, std::memory_order_acq_rel);
-    }
-
-    {
-        std::lock_guard<std::mutex> lock(vstCommandMutex);
-        for (auto& pending : vstCommandQueue)
-        {
-            if (pending.completion)
-                pending.completion->set_value(false);
-        }
-        vstCommandQueue.clear();
-        vstOperationsPending.store(0, std::memory_order_release);
-    }
-
-    CoUninitialize();
 }
 
 namespace {
@@ -1476,29 +1339,6 @@ void audioLoop() {
         uint64_t id = 0;
     };
 
-    auto applyVstResetRequests = [&]() {
-        int published = gPublishedVstBatch.exchange(-1, std::memory_order_acq_rel);
-        if (published < 0)
-            return;
-
-        auto& batch = gVstResetBatches[published];
-        for (std::size_t i = 0; i < batch.count; ++i)
-        {
-            int trackId = batch.ids[i];
-            auto stateIt = playbackStates.find(trackId);
-            if (stateIt != playbackStates.end())
-            {
-                auto& state = stateIt->second;
-                state.vstPrepared = false;
-                state.vstPreparedSampleRate = 0.0;
-                state.vstPreparedBlockSize = 0;
-                state.vstPrepareErrorNotified = false;
-            }
-        }
-
-        gVstResetBatches[published].count = 0;
-    };
-
     struct ModulationResult
     {
         std::vector<TrackModulatedParameters> parameters;
@@ -2195,43 +2035,10 @@ void audioLoop() {
                         state.stepPan = 0.0;
                         state.stepPitchOffset = 0.0;
                     }
-
-                    auto host = trackInfo.vstHost;
-                    if (host) {
-                        bool needsPrepare = typeChanged || samplerResetPending || !state.vstPrepared ||
-                                            std::abs(state.vstPreparedSampleRate - sampleRate) > 1e-6 ||
-                                            state.vstPreparedBlockSize != static_cast<int>(bufferFrameCount);
-
-                        if (needsPrepare) {
-                            bool prepared = host->prepare(sampleRate, static_cast<int>(bufferFrameCount));
-                            state.vstPrepared = prepared;
-
-                            if (prepared) {
-                                state.vstPreparedSampleRate = sampleRate;
-                                state.vstPreparedBlockSize = static_cast<int>(bufferFrameCount);
-                                state.vstPrepareErrorNotified = false;
-                            } else {
-                                state.vstPreparedSampleRate = 0.0;
-                                state.vstPreparedBlockSize = 0;
-
-                                if (!state.vstPrepareErrorNotified) {
-                                    std::wstring trackName(trackInfo.name.begin(), trackInfo.name.end());
-                                    if (trackName.empty())
-                                        trackName = L"Unnamed";
-
-                                    std::wstring message = L"Failed to prepare VST plug-in for track '" + trackName +
-                                                           L"'.\nTry reselecting the audio device or reloading the plug-in.";
-                                    enqueueAudioThreadNotification(L"VST Prepare Failed", message);
-                                    state.vstPrepareErrorNotified = true;
-                                }
-                            }
-                        }
-                    } else {
-                        state.vstPrepared = false;
-                        state.vstPreparedSampleRate = 0.0;
-                        state.vstPreparedBlockSize = 0;
-                        state.vstPrepareErrorNotified = false;
-                    }
+                    state.vstPrepared = false;
+                    state.vstPreparedSampleRate = 0.0;
+                    state.vstPreparedBlockSize = 0;
+                    state.vstPrepareErrorNotified = false;
                 } else if (trackInfo.type == TrackType::MidiOut) {
                     state.vstPrepared = false;
                     state.vstPreparedSampleRate = 0.0;
@@ -2282,22 +2089,7 @@ void audioLoop() {
                 samplerResetPending = false;
             }
 
-            applyVstResetRequests();
             bool playingNow = isPlaying.load(std::memory_order_relaxed);
-            if (vstOperationsPending.load(std::memory_order_acquire) > 0)
-            {
-                for (UINT32 i = 0; i < available; ++i)
-                {
-                    writeFrame(i, 0.0, 0.0);
-                    if (playingNow)
-                        transportSamplePosition += 1.0;
-                }
-
-                previousPlaying = playingNow;
-
-                deviceHandler->releaseBuffer(available);
-                continue;
-            }
 
             static thread_local std::vector<float> capturedSamples;
             static thread_local std::size_t capturedCapacity = 0;
@@ -2664,96 +2456,7 @@ void audioLoop() {
                             }
                         } else if (trackInfo.type == TrackType::Synth) {
                             state.modulation.envelopeValue.store(0.0, std::memory_order_relaxed);
-                            auto host = trackInfo.vstHost;
-                            if (host && state.vstPrepared) {
-                                auto queueNoteOff = [&](int note) {
-                                    Steinberg::Vst::Event ev {};
-                                    ev.busIndex = 0;
-                                    ev.sampleOffset = 0;
-                                    ev.type = Steinberg::Vst::Event::kNoteOffEvent;
-                                    ev.noteOff.pitch = static_cast<float>(note);
-                                    ev.noteOff.velocity = 0.0f;
-                                    ev.noteOff.channel = static_cast<Steinberg::int16>(state.midiChannel);
-                                    ev.noteOff.noteId = -1;
-                                    host->queueNoteEvent(ev);
-                                };
-
-                                auto queueNoteOn = [&](const StepNoteInfo& noteInfo) {
-                                    double velocity = std::clamp(static_cast<double>(noteInfo.velocity),
-                                                                  static_cast<double>(kTrackStepVelocityMin),
-                                                                  static_cast<double>(kTrackStepVelocityMax));
-                                    if (velocity <= 0.0)
-                                        return;
-
-                                    int note = std::clamp(noteInfo.midiNote, 0, 127);
-                                    float normalizedVelocity = static_cast<float>(std::clamp(velocity, 0.0, 1.0));
-
-                                    Steinberg::Vst::Event onEvent {};
-                                    onEvent.busIndex = 0;
-                                    onEvent.sampleOffset = 0;
-                                    onEvent.type = Steinberg::Vst::Event::kNoteOnEvent;
-                                    onEvent.noteOn.pitch = static_cast<float>(note);
-                                    onEvent.noteOn.velocity = normalizedVelocity;
-                                    onEvent.noteOn.channel = static_cast<Steinberg::int16>(state.midiChannel);
-                                    onEvent.noteOn.noteId = -1;
-                                    host->queueNoteEvent(onEvent);
-
-                                    Steinberg::Vst::Event pressureEvent {};
-                                    pressureEvent.busIndex = 0;
-                                    pressureEvent.sampleOffset = 0;
-                                    pressureEvent.type = Steinberg::Vst::Event::kPolyPressureEvent;
-                                    pressureEvent.polyPressure.pitch = static_cast<float>(note);
-                                    pressureEvent.polyPressure.pressure = normalizedVelocity;
-                                    pressureEvent.polyPressure.channel = static_cast<Steinberg::int16>(state.midiChannel);
-                                    host->queueNoteEvent(pressureEvent);
-                                };
-
-                                if (!gate) {
-                                    if (!state.activeMidiNotes.empty()) {
-                                        for (int note : state.activeMidiNotes)
-                                            queueNoteOff(note);
-                                        state.activeMidiNotes.clear();
-                                    }
-                                } else if (stepAdvanced) {
-                                    std::vector<int> notesThisStep = notesPresent;
-                                    std::sort(notesThisStep.begin(), notesThisStep.end());
-                                    notesThisStep.erase(std::unique(notesThisStep.begin(), notesThisStep.end()),
-                                                        notesThisStep.end());
-
-                                    for (int activeNote : state.activeMidiNotes) {
-                                        if (!std::binary_search(notesThisStep.begin(), notesThisStep.end(), activeNote))
-                                            queueNoteOff(activeNote);
-                                    }
-
-                                    for (const auto& noteInfo : noteOnNotes) {
-                                        int note = std::clamp(noteInfo.midiNote, 0, 127);
-                                        auto wasActive = std::find(state.activeMidiNotes.begin(), state.activeMidiNotes.end(), note)
-                                                         != state.activeMidiNotes.end();
-                                        if (wasActive)
-                                            queueNoteOff(note);
-                                        queueNoteOn(noteInfo);
-                                    }
-
-                                    state.activeMidiNotes = std::move(notesThisStep);
-                                }
-
-                                kj::VST3Host::HostTransportState transport {};
-                                transport.samplePosition = transportSamplePosition + static_cast<double>(i);
-                                transport.tempo = static_cast<double>(sequencerBPM.load(std::memory_order_relaxed));
-                                transport.timeSigNum = 4;
-                                transport.timeSigDen = 4;
-                                transport.playing = playing;
-                                host->setTransportState(transport);
-
-                                float left = 0.0f;
-                                float right = 0.0f;
-                                float* outputs[2] = { &left, &right };
-                                host->process(outputs, 2, 1);
-                                trackLeft = static_cast<double>(left);
-                                trackRight = static_cast<double>(right);
-                            } else {
-                                state.activeMidiNotes.clear();
-                            }
+                            state.activeMidiNotes.clear();
                         } else if (trackInfo.type == TrackType::MidiOut) {
                             state.modulation.envelopeValue.store(0.0, std::memory_order_relaxed);
                             state.samplePlaying = false;
@@ -3265,10 +2968,7 @@ void initAudio() {
         sequencerThread.join();
     if (audioThread.joinable())
         audioThread.join();
-    if (vstCommandThread.joinable())
-        vstCommandThread.join();
     sequencerThread = std::thread(sequencerWarmupLoop);
-    vstCommandThread = std::thread(vstCommandLoop);
     audioThread = std::thread(audioLoop);
 }
 
@@ -3276,9 +2976,7 @@ void shutdownAudio() {
     running.store(false, std::memory_order_release);
     audioSequencerReady.store(false, std::memory_order_release);
     isPlaying.store(false, std::memory_order_relaxed);
-    vstCommandCv.notify_all();
     if (audioThread.joinable()) audioThread.join();
-    if (vstCommandThread.joinable()) vstCommandThread.join();
     if (sequencerThread.joinable()) sequencerThread.join();
     shutdownMidiOutput();
 }
