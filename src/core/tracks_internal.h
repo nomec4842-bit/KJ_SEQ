@@ -168,7 +168,6 @@ struct TrackData
     std::atomic<int> stepCount{1};
     std::atomic<int> maxInitializedStepCount{kSequencerStepsPerPage};
     std::shared_ptr<const SampleBuffer> sampleBuffer;
-    std::shared_ptr<kj::VST3Host> vstHost;
     std::mutex noteMutex;
     std::atomic<int> midiChannel{kDefaultMidiChannel};
     std::atomic<int> midiPort{kDefaultMidiPort};
@@ -241,8 +240,6 @@ inline TrackData::TrackData(Track baseTrack)
     track.midiChannel = kDefaultMidiChannel;
     track.midiPort = kDefaultMidiPort;
     track.midiPortName.clear();
-    vstHost.reset();
-    track.vstHost = vstHost;
 
     stepCount.store(kSequencerStepsPerPage, std::memory_order_relaxed);
     for (size_t i = 0; i < lfoRateHz.size(); ++i)

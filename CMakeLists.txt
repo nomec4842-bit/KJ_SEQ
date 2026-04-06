@@ -13,8 +13,6 @@ if(WIN32)
     )
 endif()
 
-set(VST3_SDK_DIR "${CMAKE_SOURCE_DIR}/external/vst3sdk")
-
 # Keep build products for different architectures separated to avoid mixing x86 and
 # x64 artifacts when reusing a build directory.
 if (MSVC)
@@ -46,58 +44,19 @@ foreach(_config IN ITEMS Debug Release RelWithDebInfo MinSizeRel)
 endforeach()
 
 include_directories(
-    ${VST3_SDK_DIR}
-    ${VST3_SDK_DIR}/pluginterfaces
-    ${VST3_SDK_DIR}/public.sdk/source
-    ${VST3_SDK_DIR}/public.sdk/source/vst
-    ${VST3_SDK_DIR}/public.sdk/source/vst/hosting
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/src
 )
 
-add_subdirectory(external/vst3sdk)
 add_subdirectory(src/core)
 add_subdirectory(src/gui)
-
-add_library(kj_hosting STATIC
-    src/hosting/VST3AsyncLoader.cpp
-    src/hosting/VST3Host.cpp
-    src/hosting/VST3PlugFrame.cpp
-    src/hosting/VstParameterQueue.cpp
-    src/hosting/VSTEditorWindow.cpp
-    # Force-include full Steinberg hosting stack so tests and the app share
-    # the same VST3 Module implementation.
-    ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/module.cpp
-    ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/module_win32.cpp
-    ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/hostclasses.cpp
-    ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/connectionproxy.cpp
-    ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/eventlist.cpp
-    ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/parameterchanges.cpp
-    ${VST3_SDK_DIR}/public.sdk/source/vst/hosting/processdata.cpp
-)
-
-if (WIN32)
-    target_sources(kj_hosting PRIVATE src/hosting/VSTGuiThread.cpp)
-
-    # Ensure the Windows-specific hosting sources are compiled with the
-    # expected platform macro.  Some toolchains (for example, clang-cl) do
-    # not automatically provide _WIN32, which leaves the guarded
-    # implementations in VSTGuiThread.cpp and VSTEditorWindow.cpp empty and
-    # results in unresolved externals when linking KJ.exe.
-    target_compile_definitions(kj_hosting PRIVATE _WIN32)
-endif()
-
-target_link_libraries(kj_hosting
-    PUBLIC kj_core kj_gui
-    sdk_common sdk_hosting pluginterfaces base
-)
 
 add_executable(KJ
     src/main.cpp
 )
 
 target_link_libraries(KJ
-    PRIVATE kj_hosting
+    PRIVATE kj_core kj_gui
 )
 
 if (MSVC)
@@ -106,15 +65,3 @@ if (MSVC)
     # otherwise be omitted when kj_gui is consumed as a static library.
     target_link_options(KJ PRIVATE "/WHOLEARCHIVE:kj_gui")
 endif()
-
-if (WIN32)
-    add_executable(kj_hosting_tests
-        src/hosting/tests/VSTGuiThreadTests.cpp
-    )
-
-    target_link_libraries(kj_hosting_tests
-        PRIVATE kj_hosting
-    )
-endif()
-
-message(STATUS "KJ configured with VST3 SDK: ${VST3_SDK_DIR}")
