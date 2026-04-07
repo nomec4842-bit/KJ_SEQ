@@ -979,6 +979,7 @@ struct SliderControlRects
 {
     RECT control{};
     RECT track{};
+    RECT handle{};
 };
 
 SliderControlRects gSynthFormantSliderControl{};
@@ -4995,7 +4996,7 @@ float sliderValueFromLocalPosition(const SliderControlRects& slider, int localX,
     if (trackWidth <= 0)
         return minValue;
 
-    constexpr int kSliderHandleWidth = 12;
+    constexpr int kSliderHandleWidth = 18;
     int handleTravel = std::max(trackWidth - kSliderHandleWidth, 1);
     int desiredHandleLeft = localX - kSliderHandleWidth / 2;
     int clampedHandleLeft = std::clamp(desiredHandleLeft, trackLeftLocal, trackLeftLocal + handleTravel);
@@ -5007,8 +5008,17 @@ float sliderValueFromLocalPosition(const SliderControlRects& slider, int localX,
 
 bool sliderHitTest(const SliderControlRects& slider, int x, int y)
 {
-    return x >= slider.control.left && x < slider.control.right &&
-           y >= slider.control.top && y < slider.control.bottom;
+    constexpr int kControlHitPadding = 6;
+    if (x >= slider.control.left - kControlHitPadding && x < slider.control.right + kControlHitPadding &&
+        y >= slider.control.top - kControlHitPadding && y < slider.control.bottom + kControlHitPadding)
+    {
+        return true;
+    }
+
+    constexpr int kTrackHitPaddingX = 10;
+    constexpr int kTrackHitPaddingY = 8;
+    return x >= slider.track.left - kTrackHitPaddingX && x < slider.track.right + kTrackHitPaddingX &&
+           y >= slider.track.top - kTrackHitPaddingY && y < slider.track.bottom + kTrackHitPaddingY;
 }
 
 void beginSliderDrag(HWND hwnd, SliderDragTarget target, int trackId, int oscIndex = -1)
@@ -5232,6 +5242,7 @@ void drawSliderControl(LICE_SysBitmap& surface, SliderControlRects& sliderRects,
     if (width <= 0 || height <= 0)
     {
         sliderRects.track = {0, 0, 0, 0};
+        sliderRects.handle = {0, 0, 0, 0};
         return;
     }
 
@@ -5286,7 +5297,7 @@ void drawSliderControl(LICE_SysBitmap& surface, SliderControlRects& sliderRects,
     LICE_DrawRect(&surface, trackRect.left, trackRect.top, trackWidth, trackHeight, LICE_ColorFromCOLORREF(RGB(90, 90, 90)));
 
     double clampedNorm = std::clamp(normalizedValue, 0.0, 1.0);
-    constexpr int handleWidth = 12;
+    constexpr int handleWidth = 18;
     int handleRange = std::max(trackWidth - handleWidth, 1);
     int handleX = trackRect.left + static_cast<int>(std::round(clampedNorm * handleRange));
     RECT handleRect {handleX, trackRect.top - 4, handleX + handleWidth, trackRect.bottom + 4};
@@ -5296,6 +5307,7 @@ void drawSliderControl(LICE_SysBitmap& surface, SliderControlRects& sliderRects,
                   handleRect.bottom - handleRect.top, LICE_ColorFromCOLORREF(RGB(20, 20, 20)));
 
     sliderRects.track = trackRect;
+    sliderRects.handle = handleRect;
 }
 
 void drawSequencer(LICE_SysBitmap& surface, int activeTrackId)
