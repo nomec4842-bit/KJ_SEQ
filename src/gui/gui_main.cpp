@@ -5870,6 +5870,10 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             if (!sliderHitTest(rects, x, y))
                 return false;
             beginSliderDrag(hwnd, target, activeTrackId, synthThreeOscEnabled ? oscIndex : -1);
+            gSliderDrag.active = true;
+            gSliderDrag.target = target;
+            gSliderDrag.owner = hwnd;
+            SetCapture(hwnd);
             updateSliderDrag(hwnd, x);
             return true;
         };
@@ -5887,26 +5891,31 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     }
     case WM_MOUSEMOVE:
     {
-        std::ostringstream stream;
-        POINT pt = getClientCursorPos(hwnd);
-        stream << "SynthParamsWndProc WM_MOUSEMOVE: dragging=" << (isSliderDragOwnedBy(hwnd) ? 1 : 0)
-               << " x=" << pt.x
-               << " y=" << pt.y;
-        logSliderDebug(stream.str());
-        if (isSliderDragOwnedBy(hwnd))
+        if (gSliderDrag.active && gSliderDrag.owner == hwnd)
         {
+            POINT pt;
+            GetCursorPos(&pt);
+            ScreenToClient(hwnd, &pt);
+
             updateSliderDrag(hwnd, pt.x);
+            InvalidateRect(hwnd, nullptr, FALSE);
             return 0;
         }
         return 0;
     }
     case WM_LBUTTONUP:
-        if (isSliderDragOwnedBy(hwnd))
+    {
+        if (gSliderDrag.active && gSliderDrag.owner == hwnd)
         {
-            endSliderDrag(hwnd);
+            gSliderDrag.active = false;
+            gSliderDrag.target = SliderDragTarget::None;
+            ReleaseCapture();
+
+            InvalidateRect(hwnd, nullptr, FALSE);
             return 0;
         }
-        break;
+        return 0;
+    }
     case WM_CAPTURECHANGED:
         if (gSliderDrag.active &&
             gSliderDrag.owner == hwnd &&
@@ -5962,12 +5971,20 @@ LRESULT CALLBACK SampleParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (sliderHitTest(gSampleAttackSliderControl, x, y))
         {
             beginSliderDrag(hwnd, SliderDragTarget::SampleAttack, activeTrackId);
+            gSliderDrag.active = true;
+            gSliderDrag.target = SliderDragTarget::SampleAttack;
+            gSliderDrag.owner = hwnd;
+            SetCapture(hwnd);
             updateSliderDrag(hwnd, x);
             return 0;
         }
         if (sliderHitTest(gSampleReleaseSliderControl, x, y))
         {
             beginSliderDrag(hwnd, SliderDragTarget::SampleRelease, activeTrackId);
+            gSliderDrag.active = true;
+            gSliderDrag.target = SliderDragTarget::SampleRelease;
+            gSliderDrag.owner = hwnd;
+            SetCapture(hwnd);
             updateSliderDrag(hwnd, x);
             return 0;
         }
@@ -5975,26 +5992,31 @@ LRESULT CALLBACK SampleParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     }
     case WM_MOUSEMOVE:
     {
-        std::ostringstream stream;
-        POINT pt = getClientCursorPos(hwnd);
-        stream << "SampleParamsWndProc WM_MOUSEMOVE: dragging=" << (isSliderDragOwnedBy(hwnd) ? 1 : 0)
-               << " x=" << pt.x
-               << " y=" << pt.y;
-        logSliderDebug(stream.str());
-        if (isSliderDragOwnedBy(hwnd))
+        if (gSliderDrag.active && gSliderDrag.owner == hwnd)
         {
+            POINT pt;
+            GetCursorPos(&pt);
+            ScreenToClient(hwnd, &pt);
+
             updateSliderDrag(hwnd, pt.x);
+            InvalidateRect(hwnd, nullptr, FALSE);
             return 0;
         }
         return 0;
     }
     case WM_LBUTTONUP:
-        if (isSliderDragOwnedBy(hwnd))
+    {
+        if (gSliderDrag.active && gSliderDrag.owner == hwnd)
         {
-            endSliderDrag(hwnd);
+            gSliderDrag.active = false;
+            gSliderDrag.target = SliderDragTarget::None;
+            ReleaseCapture();
+
+            InvalidateRect(hwnd, nullptr, FALSE);
             return 0;
         }
-        break;
+        return 0;
+    }
     case WM_CAPTURECHANGED:
         if (gSliderDrag.active &&
             gSliderDrag.owner == hwnd &&
