@@ -5726,6 +5726,8 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 {
     switch (msg)
     {
+    case WM_MOUSEACTIVATE:
+        return MA_ACTIVATE;
     case WM_LBUTTONDOWN:
     {
         int x = GET_X_LPARAM(lParam);
@@ -5860,6 +5862,8 @@ LRESULT CALLBACK SampleParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 {
     switch (msg)
     {
+    case WM_MOUSEACTIVATE:
+        return MA_ACTIVATE;
     case WM_LBUTTONDOWN:
     {
         int x = GET_X_LPARAM(lParam);
