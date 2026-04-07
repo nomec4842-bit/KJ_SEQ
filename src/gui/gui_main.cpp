@@ -1331,6 +1331,14 @@ bool pointInRect(const RECT& rect, int x, int y)
     return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 }
 
+POINT getClientCursorPos(HWND hwnd)
+{
+    POINT pt{};
+    GetCursorPos(&pt);
+    ScreenToClient(hwnd, &pt);
+    return pt;
+}
+
 template <typename Options, typename Predicate>
 bool computeDropdownBoundsIf(const Options& options, RECT& bounds, Predicate predicate)
 {
@@ -1569,8 +1577,9 @@ LRESULT CALLBACK PianoRollWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         RECT client;
         GetClientRect(hwnd, &client);
         PianoRollLayout layout = computePianoRollLayout(client);
-        int x = GET_X_LPARAM(lParam);
-        int y = GET_Y_LPARAM(lParam);
+        POINT pt = getClientCursorPos(hwnd);
+        int x = pt.x;
+        int y = pt.y;
 
         if (x >= layout.collapseButton.left && x < layout.collapseButton.right && y >= layout.collapseButton.top &&
             y < layout.collapseButton.bottom)
@@ -1768,8 +1777,9 @@ LRESULT CALLBACK PianoRollWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         GetClientRect(hwnd, &client);
         PianoRollLayout layout = computePianoRollLayout(client);
 
-        int x = GET_X_LPARAM(lParam);
-        int y = GET_Y_LPARAM(lParam);
+        POINT pt = getClientCursorPos(hwnd);
+        int x = pt.x;
+        int y = pt.y;
 
         if (x < layout.grid.left || x >= layout.grid.right || y < layout.grid.top || y >= layout.grid.bottom)
             return 0;
@@ -1869,8 +1879,9 @@ LRESULT CALLBACK PianoRollWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             RECT laneRect = gPianoRollParamDrag.laneRect;
             if (laneRect.right > laneRect.left && laneRect.bottom > laneRect.top)
             {
-                int pointerX = GET_X_LPARAM(lParam);
-                int pointerY = GET_Y_LPARAM(lParam);
+                POINT pt = getClientCursorPos(hwnd);
+                int pointerX = pt.x;
+                int pointerY = pt.y;
                 if (pointerX < laneRect.left)
                     pointerX = laneRect.left;
                 if (pointerX >= laneRect.right)
@@ -1917,8 +1928,9 @@ LRESULT CALLBACK PianoRollWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
 
             if (layout.grid.right > layout.grid.left && layout.grid.bottom > layout.grid.top)
             {
-                int x = GET_X_LPARAM(lParam);
-                int y = GET_Y_LPARAM(lParam);
+                POINT pt = getClientCursorPos(hwnd);
+                int x = pt.x;
+                int y = pt.y;
                 if (x >= layout.grid.left && x < layout.grid.right && y >= layout.grid.top && y < layout.grid.bottom)
                 {
                     int column = -1;
@@ -1991,7 +2003,8 @@ LRESULT CALLBACK PianoRollWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         if (layout.grid.right <= layout.grid.left)
             return 0;
 
-        int x = GET_X_LPARAM(lParam);
+        POINT pt = getClientCursorPos(hwnd);
+        int x = pt.x;
         if (x < layout.grid.left)
             x = layout.grid.left;
         if (x >= layout.grid.right)
@@ -5781,7 +5794,9 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         return MA_ACTIVATE;
     case WM_LBUTTONDOWN:
     {
-        int x = GET_X_LPARAM(lParam);
+        POINT pt = getClientCursorPos(hwnd);
+        int x = pt.x;
+        int y = pt.y;
         auto requestImmediateRedraw = [hwnd]() {
             InvalidateRect(hwnd, nullptr, FALSE);
             UpdateWindow(hwnd);
@@ -5796,7 +5811,7 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
         bool synthThreeOscEnabled = trackGetSynthThreeOscEnabled(activeTrackId);
         int oscIndex = getSynthOscTabIndex(activeTrackId);
-        if (pointInRect(synthThreeOscToggleButton, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+        if (pointInRect(synthThreeOscToggleButton, x, y))
         {
             bool nextState = !synthThreeOscEnabled;
             trackSetSynthThreeOscEnabled(activeTrackId, nextState);
@@ -5832,14 +5847,14 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         {
             for (size_t i = 0; i < kSynthOscillatorCount; ++i)
             {
-                if (pointInRect(synthOscTabButtons[i], GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+                if (pointInRect(synthOscTabButtons[i], x, y))
                 {
                     setSynthOscTabIndex(activeTrackId, static_cast<int>(i));
                     requestImmediateRedraw();
                     return 0;
                 }
             }
-            if (pointInRect(synthWavetableToggleButton, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+            if (pointInRect(synthWavetableToggleButton, x, y))
             {
                 bool enabled = trackGetSynthOscWavetableEnabled(activeTrackId, oscIndex);
                 trackSetSynthOscWavetableEnabled(activeTrackId, oscIndex, !enabled);
@@ -5849,7 +5864,7 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         }
 
         auto handleSlider = [&](const SliderControlRects& rects, SliderDragTarget target) {
-            if (!sliderHitTest(rects, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+            if (!sliderHitTest(rects, x, y))
                 return false;
             beginSliderDrag(hwnd, target, activeTrackId, synthThreeOscEnabled ? oscIndex : -1);
             updateSliderDrag(hwnd, x);
@@ -5870,13 +5885,14 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     case WM_MOUSEMOVE:
     {
         std::ostringstream stream;
+        POINT pt = getClientCursorPos(hwnd);
         stream << "SynthParamsWndProc WM_MOUSEMOVE: dragging=" << (isSliderDragOwnedBy(hwnd) ? 1 : 0)
-               << " x=" << GET_X_LPARAM(lParam)
-               << " y=" << GET_Y_LPARAM(lParam);
+               << " x=" << pt.x
+               << " y=" << pt.y;
         logSliderDebug(stream.str());
         if (isSliderDragOwnedBy(hwnd))
         {
-            updateSliderDrag(hwnd, GET_X_LPARAM(lParam));
+            updateSliderDrag(hwnd, pt.x);
             return 0;
         }
         break;
@@ -5929,7 +5945,9 @@ LRESULT CALLBACK SampleParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return MA_ACTIVATE;
     case WM_LBUTTONDOWN:
     {
-        int x = GET_X_LPARAM(lParam);
+        POINT pt = getClientCursorPos(hwnd);
+        int x = pt.x;
+        int y = pt.y;
         endSliderDrag(hwnd);
         std::vector<Track> tracks;
         Track fallback{};
@@ -5938,13 +5956,13 @@ LRESULT CALLBACK SampleParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (!activeTrack || activeTrack->type != TrackType::Sample || activeTrackId <= 0)
             return 0;
 
-        if (sliderHitTest(gSampleAttackSliderControl, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+        if (sliderHitTest(gSampleAttackSliderControl, x, y))
         {
             beginSliderDrag(hwnd, SliderDragTarget::SampleAttack, activeTrackId);
             updateSliderDrag(hwnd, x);
             return 0;
         }
-        if (sliderHitTest(gSampleReleaseSliderControl, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+        if (sliderHitTest(gSampleReleaseSliderControl, x, y))
         {
             beginSliderDrag(hwnd, SliderDragTarget::SampleRelease, activeTrackId);
             updateSliderDrag(hwnd, x);
@@ -5955,13 +5973,14 @@ LRESULT CALLBACK SampleParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     case WM_MOUSEMOVE:
     {
         std::ostringstream stream;
+        POINT pt = getClientCursorPos(hwnd);
         stream << "SampleParamsWndProc WM_MOUSEMOVE: dragging=" << (isSliderDragOwnedBy(hwnd) ? 1 : 0)
-               << " x=" << GET_X_LPARAM(lParam)
-               << " y=" << GET_Y_LPARAM(lParam);
+               << " x=" << pt.x
+               << " y=" << pt.y;
         logSliderDebug(stream.str());
         if (isSliderDragOwnedBy(hwnd))
         {
-            updateSliderDrag(hwnd, GET_X_LPARAM(lParam));
+            updateSliderDrag(hwnd, pt.x);
             return 0;
         }
         break;
@@ -6620,8 +6639,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     }
     case WM_LBUTTONDOWN:
     {
-        int x = LOWORD(lParam);
-        int y = HIWORD(lParam);
+        POINT pt = getClientCursorPos(hwnd);
+        int x = pt.x;
+        int y = pt.y;
         endSliderDrag(hwnd);
         if (audioDeviceDropdownOpen)
         {
@@ -7217,13 +7237,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_MOUSEMOVE:
     {
         std::ostringstream stream;
+        POINT pt = getClientCursorPos(hwnd);
         stream << "MainWndProc WM_MOUSEMOVE: dragging=" << (isSliderDragOwnedBy(hwnd) ? 1 : 0)
-               << " x=" << GET_X_LPARAM(lParam)
-               << " y=" << GET_Y_LPARAM(lParam);
+               << " x=" << pt.x
+               << " y=" << pt.y;
         logSliderDebug(stream.str());
         if (isSliderDragOwnedBy(hwnd))
         {
-            int x = GET_X_LPARAM(lParam);
+            int x = pt.x;
             updateSliderDrag(hwnd, x);
             return 0;
         }
