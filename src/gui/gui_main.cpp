@@ -1994,7 +1994,7 @@ LRESULT CALLBACK PianoRollWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             else
                 SetCursor(LoadCursor(nullptr, IDC_ARROW));
 
-            break;
+            return 0;
         }
 
         RECT client;
