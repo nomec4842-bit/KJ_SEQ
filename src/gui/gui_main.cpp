@@ -5041,7 +5041,13 @@ void beginSliderDrag(HWND hwnd, SliderDragTarget target, int trackId, int oscInd
 
 bool isSliderDragOwnedBy(HWND hwnd)
 {
-    return gSliderDrag.target != SliderDragTarget::None && gSliderDrag.owner == hwnd;
+    if (gSliderDrag.target == SliderDragTarget::None)
+        return false;
+
+    if (gSliderDrag.owner == hwnd)
+        return true;
+
+    return GetCapture() == hwnd;
 }
 
 void endSliderDrag(HWND hwnd)
@@ -5066,6 +5072,14 @@ void endSliderDrag(HWND hwnd)
 
 void updateSliderDrag(HWND hwnd, int x)
 {
+    {
+        std::ostringstream stream;
+        stream << "updateSliderDrag called: dragging=" << (gSliderDrag.target != SliderDragTarget::None ? 1 : 0)
+               << " target=" << static_cast<int>(gSliderDrag.target)
+               << " x=" << x;
+        logSliderDebug(stream.str());
+    }
+
     if (gSliderDrag.target == SliderDragTarget::None)
         return;
 
@@ -5846,12 +5860,19 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         return 0;
     }
     case WM_MOUSEMOVE:
+    {
+        std::ostringstream stream;
+        stream << "SynthParamsWndProc WM_MOUSEMOVE: dragging=" << (isSliderDragOwnedBy(hwnd) ? 1 : 0)
+               << " x=" << GET_X_LPARAM(lParam)
+               << " y=" << GET_Y_LPARAM(lParam);
+        logSliderDebug(stream.str());
         if (isSliderDragOwnedBy(hwnd))
         {
             updateSliderDrag(hwnd, GET_X_LPARAM(lParam));
             return 0;
         }
         break;
+    }
     case WM_LBUTTONUP:
         if (isSliderDragOwnedBy(hwnd))
         {
@@ -5924,12 +5945,19 @@ LRESULT CALLBACK SampleParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
     }
     case WM_MOUSEMOVE:
+    {
+        std::ostringstream stream;
+        stream << "SampleParamsWndProc WM_MOUSEMOVE: dragging=" << (isSliderDragOwnedBy(hwnd) ? 1 : 0)
+               << " x=" << GET_X_LPARAM(lParam)
+               << " y=" << GET_Y_LPARAM(lParam);
+        logSliderDebug(stream.str());
         if (isSliderDragOwnedBy(hwnd))
         {
             updateSliderDrag(hwnd, GET_X_LPARAM(lParam));
             return 0;
         }
         break;
+    }
     case WM_LBUTTONUP:
         if (isSliderDragOwnedBy(hwnd))
         {
@@ -7180,6 +7208,11 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_MOUSEMOVE:
     {
+        std::ostringstream stream;
+        stream << "MainWndProc WM_MOUSEMOVE: dragging=" << (isSliderDragOwnedBy(hwnd) ? 1 : 0)
+               << " x=" << GET_X_LPARAM(lParam)
+               << " y=" << GET_Y_LPARAM(lParam);
+        logSliderDebug(stream.str());
         if (isSliderDragOwnedBy(hwnd))
         {
             int x = GET_X_LPARAM(lParam);
