@@ -4981,18 +4981,26 @@ double computeNormalized(double value, double minValue, double maxValue)
     return std::clamp(normalized, 0.0, 1.0);
 }
 
-float sliderValueFromPosition(const SliderControlRects& slider, int x, float minValue, float maxValue)
+float sliderValueFromLocalPosition(const SliderControlRects& slider, int localX, float minValue, float maxValue)
 {
-    int trackWidth = slider.track.right - slider.track.left;
+    const int trackLeftLocal = slider.track.left - slider.control.left;
+    const int trackRightLocal = slider.track.right - slider.control.left;
+    int trackWidth = trackRightLocal - trackLeftLocal;
     if (trackWidth <= 0)
         return minValue;
 
     // Cast for consistent LONG type usage
-    int clampedX = static_cast<int>(std::clamp<LONG>(static_cast<LONG>(x), slider.track.left, slider.track.right));
-    double normalized = static_cast<double>(clampedX - slider.track.left) / static_cast<double>(trackWidth);
+    int clampedX = static_cast<int>(std::clamp<LONG>(static_cast<LONG>(localX), trackLeftLocal, trackRightLocal));
+    double normalized = static_cast<double>(clampedX - trackLeftLocal) / static_cast<double>(trackWidth);
     double value = static_cast<double>(minValue) + normalized * (static_cast<double>(maxValue) - static_cast<double>(minValue));
     float result = static_cast<float>(value);
     return std::clamp(result, minValue, maxValue);
+}
+
+bool sliderHitTest(const SliderControlRects& slider, int x, int y)
+{
+    return x >= slider.control.left && x < slider.control.right &&
+           y >= slider.control.top && y < slider.control.bottom;
 }
 
 void beginSliderDrag(HWND hwnd, SliderDragTarget target, int trackId, int oscIndex = -1)
@@ -5044,7 +5052,8 @@ void updateSliderDrag(HWND hwnd, int x)
             return false;
         }
 
-        float newValue = sliderValueFromPosition(slider, x, minValue, maxValue);
+        const int localX = x - slider.control.left;
+        float newValue = sliderValueFromLocalPosition(slider, localX, minValue, maxValue);
         setter(newValue);
         InvalidateRect(hwnd, nullptr, FALSE);
         return true;
@@ -5776,7 +5785,7 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         }
 
         auto handleSlider = [&](const SliderControlRects& rects, SliderDragTarget target) {
-            if (!pointInRect(rects.control, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+            if (!sliderHitTest(rects, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
                 return false;
             beginSliderDrag(hwnd, target, activeTrackId, synthThreeOscEnabled ? oscIndex : -1);
             updateSliderDrag(hwnd, x);
@@ -5851,13 +5860,13 @@ LRESULT CALLBACK SampleParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         if (!activeTrack || activeTrack->type != TrackType::Sample || activeTrackId <= 0)
             return 0;
 
-        if (pointInRect(gSampleAttackSliderControl.control, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+        if (sliderHitTest(gSampleAttackSliderControl, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
         {
             beginSliderDrag(hwnd, SliderDragTarget::SampleAttack, activeTrackId);
             updateSliderDrag(hwnd, x);
             return 0;
         }
-        if (pointInRect(gSampleReleaseSliderControl.control, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+        if (sliderHitTest(gSampleReleaseSliderControl, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
         {
             beginSliderDrag(hwnd, SliderDragTarget::SampleRelease, activeTrackId);
             updateSliderDrag(hwnd, x);
