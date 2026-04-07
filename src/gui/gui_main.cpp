@@ -57,6 +57,10 @@ HWND gEqWindow = nullptr;
 bool gEqWindowClassRegistered = false;
 HWND gDelayWindow = nullptr;
 bool gDelayWindowClassRegistered = false;
+HWND gSynthParamsWindow = nullptr;
+bool gSynthParamsWindowClassRegistered = false;
+HWND gSampleParamsWindow = nullptr;
+bool gSampleParamsWindowClassRegistered = false;
 
 namespace {
 
@@ -244,6 +248,10 @@ void notifyDelayWindowValuesChanged(int trackId);
 void openSidechainWindow(HWND parent, int trackId);
 void openEqWindow(HWND parent, int trackId);
 void openDelayWindow(HWND parent, int trackId);
+void openSynthParamsWindow(HWND parent);
+void openSampleParamsWindow(HWND parent);
+void updateParamWindowsVisibility();
+void snapParamWindowsToMain();
 
 constexpr UINT kMenuCommandLoadProject = 1001;
 constexpr UINT kMenuCommandSaveProject = 1002;
@@ -5332,10 +5340,20 @@ void drawSynthTrackControls(LICE_SysBitmap& surface, const RECT& client, const T
     if (!activeTrack || activeTrack->type != TrackType::Synth)
         return;
 
-    const RECT& firstStep = stepRects.front();
-    const RECT& lastStep = stepRects.back();
-    int areaLeft = firstStep.left;
-    int areaRight = lastStep.right;
+    int areaLeft = client.left + 12;
+    int areaRight = client.right - 12;
+    int baseTop = client.top + 12;
+    if (!stepRects.empty() && stepRects.back().right > stepRects.front().left)
+    {
+        const RECT& firstStep = stepRects.front();
+        const RECT& lastStep = stepRects.back();
+        if (firstStep.right <= client.right + 1)
+        {
+            areaLeft = firstStep.left;
+            areaRight = lastStep.right;
+            baseTop = firstStep.bottom + 12;
+        }
+    }
     if (areaRight <= areaLeft)
         return;
 
@@ -5349,7 +5367,7 @@ void drawSynthTrackControls(LICE_SysBitmap& surface, const RECT& client, const T
     int slidersPerRow = 3;
     int sliderSpacing = 12;
     int sliderHeight = 70;
-    int areaTop = firstStep.bottom + topSpacing;
+    int areaTop = baseTop + topSpacing;
 
     bool threeOscEnabled = activeTrack->synthThreeOscEnabled;
     int oscIndex = threeOscEnabled ? getSynthOscTabIndex(activeTrack->id) : 0;
@@ -5394,7 +5412,7 @@ void drawSynthTrackControls(LICE_SysBitmap& surface, const RECT& client, const T
         int minimumHeight = rows * 32 + (rows - 1) * rowSpacing;
         if (availableHeight < minimumHeight)
         {
-            areaTop = std::max<int>(areaBottom - minimumHeight, static_cast<int>(firstStep.bottom + 2));
+            areaTop = std::max<int>(areaBottom - minimumHeight, baseTop + 2);
             availableHeight = areaBottom - areaTop;
         }
         sliderHeight = (availableHeight - (rows - 1) * rowSpacing) / rows;
@@ -5514,23 +5532,33 @@ void drawSampleTrackControls(LICE_SysBitmap& surface, const RECT& client, const 
     if (!activeTrack || activeTrack->type != TrackType::Sample)
         return;
 
-    const RECT& firstStep = stepRects.front();
-    const RECT& lastStep = stepRects.back();
-    int areaLeft = firstStep.left;
-    int areaRight = lastStep.right;
+    int areaLeft = client.left + 12;
+    int areaRight = client.right - 12;
+    int baseTop = client.top + 12;
+    if (!stepRects.empty() && stepRects.back().right > stepRects.front().left)
+    {
+        const RECT& firstStep = stepRects.front();
+        const RECT& lastStep = stepRects.back();
+        if (firstStep.right <= client.right + 1)
+        {
+            areaLeft = firstStep.left;
+            areaRight = lastStep.right;
+            baseTop = firstStep.bottom + 12;
+        }
+    }
     if (areaRight <= areaLeft)
         return;
 
     int topSpacing = 12;
     int sliderSpacing = 12;
     int sliderHeight = 70;
-    int areaTop = firstStep.bottom + topSpacing;
+    int areaTop = baseTop + topSpacing;
     int areaBottom = areaTop + sliderHeight;
     if (areaBottom > client.bottom)
     {
         areaBottom = client.bottom;
         if (areaBottom - areaTop < 32)
-            areaTop = std::max<int>(areaBottom - 32, static_cast<int>(firstStep.bottom + 2));
+            areaTop = std::max<int>(areaBottom - 32, baseTop + 2);
     }
     if (areaBottom <= areaTop)
         return;
@@ -5564,9 +5592,352 @@ void drawSampleTrackControls(LICE_SysBitmap& surface, const RECT& client, const 
                       "Release", formatSecondsValue(activeTrack->sampleRelease));
 }
 
+void clearParameterControlRects()
+{
+    gSynthFormantSliderControl = {};
+    gSynthResonanceSliderControl = {};
+    gSynthFeedbackSliderControl = {};
+    gSynthPitchSliderControl = {};
+    gSynthPitchRangeSliderControl = {};
+    gSynthAttackSliderControl = {};
+    gSynthDecaySliderControl = {};
+    gSynthSustainSliderControl = {};
+    gSynthReleaseSliderControl = {};
+    gSampleAttackSliderControl = {};
+    gSampleReleaseSliderControl = {};
+    synthThreeOscToggleButton = {};
+    synthWavetableToggleButton = {};
+    for (auto& rect : synthOscTabButtons)
+        rect = {};
+}
+
+const Track* getActiveTrackSnapshot(std::vector<Track>& tracks, Track& fallbackTrack, int& activeTrackIdOut)
+{
+    tracks = getTracks();
+    ensureTrackTabState(tracks);
+    int activeTrackId = selectedTrackId;
+    if (activeTrackId <= 0 && !tracks.empty())
+    {
+        activeTrackId = tracks.front().id;
+        setActiveSequencerTrackId(activeTrackId);
+    }
+    activeTrackIdOut = activeTrackId;
+    const Track* activeTrackPtr = findTrackById(tracks, activeTrackId);
+    if (!activeTrackPtr && activeTrackId > 0)
+    {
+        fallbackTrack.id = activeTrackId;
+        fallbackTrack.type = trackGetType(activeTrackId);
+        fallbackTrack.synthWaveType = trackGetSynthWaveType(activeTrackId);
+        fallbackTrack.formant = trackGetSynthFormant(activeTrackId);
+        fallbackTrack.resonance = trackGetSynthResonance(activeTrackId);
+        fallbackTrack.feedback = trackGetSynthFeedback(activeTrackId);
+        fallbackTrack.pitch = trackGetSynthPitch(activeTrackId);
+        fallbackTrack.pitchRange = trackGetSynthPitchRange(activeTrackId);
+        fallbackTrack.synthAttack = trackGetSynthAttack(activeTrackId);
+        fallbackTrack.synthDecay = trackGetSynthDecay(activeTrackId);
+        fallbackTrack.synthSustain = trackGetSynthSustain(activeTrackId);
+        fallbackTrack.synthRelease = trackGetSynthRelease(activeTrackId);
+        fallbackTrack.synthThreeOscEnabled = trackGetSynthThreeOscEnabled(activeTrackId);
+        for (size_t oscIndex = 0; oscIndex < fallbackTrack.synthOscillators.size(); ++oscIndex)
+        {
+            fallbackTrack.synthOscillators[oscIndex].formant = trackGetSynthOscFormant(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].resonance = trackGetSynthOscResonance(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].feedback = trackGetSynthOscFeedback(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].pitch = trackGetSynthOscPitch(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].pitchRange = trackGetSynthOscPitchRange(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].attack = trackGetSynthOscAttack(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].decay = trackGetSynthOscDecay(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].sustain = trackGetSynthOscSustain(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].release = trackGetSynthOscRelease(activeTrackId, static_cast<int>(oscIndex));
+            fallbackTrack.synthOscillators[oscIndex].wavetableEnabled =
+                trackGetSynthOscWavetableEnabled(activeTrackId, static_cast<int>(oscIndex));
+        }
+        fallbackTrack.sampleAttack = trackGetSampleAttack(activeTrackId);
+        fallbackTrack.sampleRelease = trackGetSampleRelease(activeTrackId);
+        activeTrackPtr = &fallbackTrack;
+    }
+    return activeTrackPtr;
+}
+
+void snapParamWindowsToMain()
+{
+    if (!gMainWindow || !IsWindow(gMainWindow))
+        return;
+
+    RECT mainRect{};
+    if (!GetWindowRect(gMainWindow, &mainRect))
+        return;
+
+    int nextX = mainRect.right + 8;
+    int nextY = mainRect.top;
+    if (gSynthParamsWindow && IsWindow(gSynthParamsWindow))
+    {
+        SetWindowPos(gSynthParamsWindow, nullptr, nextX, nextY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        nextY += 360;
+    }
+    if (gSampleParamsWindow && IsWindow(gSampleParamsWindow))
+    {
+        SetWindowPos(gSampleParamsWindow, nullptr, nextX, nextY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
+void updateParamWindowsVisibility()
+{
+    std::vector<Track> tracks;
+    Track fallback{};
+    int activeTrackId = 0;
+    const Track* activeTrack = getActiveTrackSnapshot(tracks, fallback, activeTrackId);
+    TrackType activeType = activeTrack ? activeTrack->type : TrackType::Synth;
+
+    if (gSynthParamsWindow && IsWindow(gSynthParamsWindow))
+        ShowWindow(gSynthParamsWindow, activeType == TrackType::Synth ? SW_SHOWNA : SW_HIDE);
+    if (gSampleParamsWindow && IsWindow(gSampleParamsWindow))
+        ShowWindow(gSampleParamsWindow, activeType == TrackType::Sample ? SW_SHOWNA : SW_HIDE);
+
+    snapParamWindowsToMain();
+}
+
+LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg)
+    {
+    case WM_LBUTTONDOWN:
+    {
+        int x = GET_X_LPARAM(lParam);
+        endSliderDrag(hwnd);
+        std::vector<Track> tracks;
+        Track fallback{};
+        int activeTrackId = 0;
+        const Track* activeTrack = getActiveTrackSnapshot(tracks, fallback, activeTrackId);
+        if (!activeTrack || activeTrack->type != TrackType::Synth || activeTrackId <= 0)
+            return 0;
+
+        bool synthThreeOscEnabled = trackGetSynthThreeOscEnabled(activeTrackId);
+        int oscIndex = getSynthOscTabIndex(activeTrackId);
+        if (pointInRect(synthThreeOscToggleButton, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+        {
+            bool nextState = !synthThreeOscEnabled;
+            trackSetSynthThreeOscEnabled(activeTrackId, nextState);
+            if (nextState)
+            {
+                float formant = trackGetSynthFormant(activeTrackId);
+                float resonance = trackGetSynthResonance(activeTrackId);
+                float feedback = trackGetSynthFeedback(activeTrackId);
+                float pitch = trackGetSynthPitch(activeTrackId);
+                float pitchRange = trackGetSynthPitchRange(activeTrackId);
+                float attack = trackGetSynthAttack(activeTrackId);
+                float decay = trackGetSynthDecay(activeTrackId);
+                float sustain = trackGetSynthSustain(activeTrackId);
+                float release = trackGetSynthRelease(activeTrackId);
+                for (int i = 0; i < static_cast<int>(kSynthOscillatorCount); ++i)
+                {
+                    trackSetSynthOscFormant(activeTrackId, i, formant);
+                    trackSetSynthOscResonance(activeTrackId, i, resonance);
+                    trackSetSynthOscFeedback(activeTrackId, i, feedback);
+                    trackSetSynthOscPitch(activeTrackId, i, pitch);
+                    trackSetSynthOscPitchRange(activeTrackId, i, pitchRange);
+                    trackSetSynthOscAttack(activeTrackId, i, attack);
+                    trackSetSynthOscDecay(activeTrackId, i, decay);
+                    trackSetSynthOscSustain(activeTrackId, i, sustain);
+                    trackSetSynthOscRelease(activeTrackId, i, release);
+                }
+            }
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        }
+
+        if (synthThreeOscEnabled)
+        {
+            for (size_t i = 0; i < kSynthOscillatorCount; ++i)
+            {
+                if (pointInRect(synthOscTabButtons[i], GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+                {
+                    setSynthOscTabIndex(activeTrackId, static_cast<int>(i));
+                    InvalidateRect(hwnd, nullptr, FALSE);
+                    return 0;
+                }
+            }
+            if (pointInRect(synthWavetableToggleButton, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+            {
+                bool enabled = trackGetSynthOscWavetableEnabled(activeTrackId, oscIndex);
+                trackSetSynthOscWavetableEnabled(activeTrackId, oscIndex, !enabled);
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return 0;
+            }
+        }
+
+        auto handleSlider = [&](const SliderControlRects& rects, SliderDragTarget target) {
+            if (!pointInRect(rects.control, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+                return false;
+            beginSliderDrag(hwnd, target, activeTrackId, synthThreeOscEnabled ? oscIndex : -1);
+            updateSliderDrag(hwnd, x);
+            return true;
+        };
+        if (handleSlider(gSynthFormantSliderControl, SliderDragTarget::SynthFormant) ||
+            handleSlider(gSynthResonanceSliderControl, SliderDragTarget::SynthResonance) ||
+            handleSlider(gSynthFeedbackSliderControl, SliderDragTarget::SynthFeedback) ||
+            handleSlider(gSynthPitchSliderControl, SliderDragTarget::SynthPitch) ||
+            handleSlider(gSynthPitchRangeSliderControl, SliderDragTarget::SynthPitchRange) ||
+            handleSlider(gSynthAttackSliderControl, SliderDragTarget::SynthAttack) ||
+            handleSlider(gSynthDecaySliderControl, SliderDragTarget::SynthDecay) ||
+            handleSlider(gSynthSustainSliderControl, SliderDragTarget::SynthSustain) ||
+            handleSlider(gSynthReleaseSliderControl, SliderDragTarget::SynthRelease))
+            return 0;
+        return 0;
+    }
+    case WM_MOUSEMOVE:
+        if (gSliderDrag.target != SliderDragTarget::None)
+        {
+            updateSliderDrag(hwnd, GET_X_LPARAM(lParam));
+            return 0;
+        }
+        break;
+    case WM_LBUTTONUP:
+        endSliderDrag(hwnd);
+        return 0;
+    case WM_CAPTURECHANGED:
+        if (gSliderDrag.target != SliderDragTarget::None && reinterpret_cast<HWND>(lParam) != hwnd)
+            endSliderDrag(hwnd);
+        return 0;
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps{};
+        HDC hdc = BeginPaint(hwnd, &ps);
+        RECT client{};
+        GetClientRect(hwnd, &client);
+        LICE_SysBitmap surface(std::max(1, client.right), std::max(1, client.bottom));
+        LICE_Clear(&surface, LICE_ColorFromCOLORREF(RGB(20, 20, 20)));
+
+        std::vector<Track> tracks;
+        Track fallback{};
+        int activeTrackId = 0;
+        const Track* activeTrack = getActiveTrackSnapshot(tracks, fallback, activeTrackId);
+        drawSynthTrackControls(surface, client, activeTrack);
+
+        LICE_Scale_BitBlt(hdc, 0, 0, surface.getWidth(), surface.getHeight(), &surface, 0, 0, SRCCOPY);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    case WM_CLOSE:
+        ShowWindow(hwnd, SW_HIDE);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK SampleParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    switch (msg)
+    {
+    case WM_LBUTTONDOWN:
+    {
+        int x = GET_X_LPARAM(lParam);
+        endSliderDrag(hwnd);
+        std::vector<Track> tracks;
+        Track fallback{};
+        int activeTrackId = 0;
+        const Track* activeTrack = getActiveTrackSnapshot(tracks, fallback, activeTrackId);
+        if (!activeTrack || activeTrack->type != TrackType::Sample || activeTrackId <= 0)
+            return 0;
+
+        if (pointInRect(gSampleAttackSliderControl.control, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+        {
+            beginSliderDrag(hwnd, SliderDragTarget::SampleAttack, activeTrackId);
+            updateSliderDrag(hwnd, x);
+            return 0;
+        }
+        if (pointInRect(gSampleReleaseSliderControl.control, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
+        {
+            beginSliderDrag(hwnd, SliderDragTarget::SampleRelease, activeTrackId);
+            updateSliderDrag(hwnd, x);
+            return 0;
+        }
+        return 0;
+    }
+    case WM_MOUSEMOVE:
+        if (gSliderDrag.target != SliderDragTarget::None)
+        {
+            updateSliderDrag(hwnd, GET_X_LPARAM(lParam));
+            return 0;
+        }
+        break;
+    case WM_LBUTTONUP:
+        endSliderDrag(hwnd);
+        return 0;
+    case WM_CAPTURECHANGED:
+        if (gSliderDrag.target != SliderDragTarget::None && reinterpret_cast<HWND>(lParam) != hwnd)
+            endSliderDrag(hwnd);
+        return 0;
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps{};
+        HDC hdc = BeginPaint(hwnd, &ps);
+        RECT client{};
+        GetClientRect(hwnd, &client);
+        LICE_SysBitmap surface(std::max(1, client.right), std::max(1, client.bottom));
+        LICE_Clear(&surface, LICE_ColorFromCOLORREF(RGB(20, 20, 20)));
+        std::vector<Track> tracks;
+        Track fallback{};
+        int activeTrackId = 0;
+        const Track* activeTrack = getActiveTrackSnapshot(tracks, fallback, activeTrackId);
+        drawSampleTrackControls(surface, client, activeTrack);
+        LICE_Scale_BitBlt(hdc, 0, 0, surface.getWidth(), surface.getHeight(), &surface, 0, 0, SRCCOPY);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    case WM_CLOSE:
+        ShowWindow(hwnd, SW_HIDE);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+void openSynthParamsWindow(HWND parent)
+{
+    if (!gSynthParamsWindowClassRegistered)
+    {
+        WNDCLASSW wc{};
+        wc.lpfnWndProc = SynthParamsWndProc;
+        wc.hInstance = GetModuleHandle(nullptr);
+        wc.lpszClassName = L"KJSynthParamsWindow";
+        gSynthParamsWindowClassRegistered = RegisterClassW(&wc) != 0;
+    }
+    if (!gSynthParamsWindowClassRegistered)
+        return;
+    if (!gSynthParamsWindow || !IsWindow(gSynthParamsWindow))
+    {
+        gSynthParamsWindow = CreateWindowExW(WS_EX_TOOLWINDOW, L"KJSynthParamsWindow", L"Synth Params",
+                                             WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX & ~WS_MINIMIZEBOX,
+                                             CW_USEDEFAULT, CW_USEDEFAULT, 420, 340, parent, nullptr,
+                                             GetModuleHandle(nullptr), nullptr);
+    }
+}
+
+void openSampleParamsWindow(HWND parent)
+{
+    if (!gSampleParamsWindowClassRegistered)
+    {
+        WNDCLASSW wc{};
+        wc.lpfnWndProc = SampleParamsWndProc;
+        wc.hInstance = GetModuleHandle(nullptr);
+        wc.lpszClassName = L"KJSampleParamsWindow";
+        gSampleParamsWindowClassRegistered = RegisterClassW(&wc) != 0;
+    }
+    if (!gSampleParamsWindowClassRegistered)
+        return;
+    if (!gSampleParamsWindow || !IsWindow(gSampleParamsWindow))
+    {
+        gSampleParamsWindow = CreateWindowExW(WS_EX_TOOLWINDOW, L"KJSampleParamsWindow", L"Sampler Params",
+                                              WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX & ~WS_MINIMIZEBOX,
+                                              CW_USEDEFAULT, CW_USEDEFAULT, 420, 160, parent, nullptr,
+                                              GetModuleHandle(nullptr), nullptr);
+    }
+}
+
 void renderUI(LICE_SysBitmap& surface, const RECT& client)
 {
     LICE_Clear(&surface, LICE_ColorFromCOLORREF(RGB(20, 20, 20)));
+    clearParameterControlRects();
     gAudioDeviceOptions.clear();
     gWaveOptions.clear();
     gMidiPortOptions.clear();
@@ -6012,8 +6383,7 @@ void renderUI(LICE_SysBitmap& surface, const RECT& client)
 
     drawSequencer(surface, activeTrackId);
 
-    drawSynthTrackControls(surface, client, activeTrackPtr);
-    drawSampleTrackControls(surface, client, activeTrackPtr);
+    updateParamWindowsVisibility();
 
     for (const auto& option : gAudioDeviceOptions)
     {
@@ -6071,6 +6441,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_CREATE:
         gMainWindow = hwnd;
         buildStepRects();
+        openSynthParamsWindow(hwnd);
+        openSampleParamsWindow(hwnd);
+        updateParamWindowsVisibility();
         // UI heartbeat timer (~66 fps)
         SetTimer(hwnd, 1, 15, nullptr);
         {
@@ -6461,210 +6834,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             return 0;
         }
 
-        if (activeTrackId > 0)
-        {
-            if (showWaveSelector)
-            {
-                bool synthThreeOscEnabled = trackGetSynthThreeOscEnabled(activeTrackId);
-                int oscIndex = getSynthOscTabIndex(activeTrackId);
-
-                if (pointInRect(synthThreeOscToggleButton, x, y))
-                {
-                    bool nextState = !synthThreeOscEnabled;
-                    trackSetSynthThreeOscEnabled(activeTrackId, nextState);
-                    if (nextState)
-                    {
-                        float formant = trackGetSynthFormant(activeTrackId);
-                        float resonance = trackGetSynthResonance(activeTrackId);
-                        float feedback = trackGetSynthFeedback(activeTrackId);
-                        float pitch = trackGetSynthPitch(activeTrackId);
-                        float pitchRange = trackGetSynthPitchRange(activeTrackId);
-                        float attack = trackGetSynthAttack(activeTrackId);
-                        float decay = trackGetSynthDecay(activeTrackId);
-                        float sustain = trackGetSynthSustain(activeTrackId);
-                        float release = trackGetSynthRelease(activeTrackId);
-                        for (int i = 0; i < static_cast<int>(kSynthOscillatorCount); ++i)
-                        {
-                            trackSetSynthOscFormant(activeTrackId, i, formant);
-                            trackSetSynthOscResonance(activeTrackId, i, resonance);
-                            trackSetSynthOscFeedback(activeTrackId, i, feedback);
-                            trackSetSynthOscPitch(activeTrackId, i, pitch);
-                            trackSetSynthOscPitchRange(activeTrackId, i, pitchRange);
-                            trackSetSynthOscAttack(activeTrackId, i, attack);
-                            trackSetSynthOscDecay(activeTrackId, i, decay);
-                            trackSetSynthOscSustain(activeTrackId, i, sustain);
-                            trackSetSynthOscRelease(activeTrackId, i, release);
-                        }
-                    }
-                    InvalidateRect(hwnd, nullptr, FALSE);
-                    return 0;
-                }
-
-                if (synthThreeOscEnabled)
-                {
-                    for (size_t i = 0; i < kSynthOscillatorCount; ++i)
-                    {
-                        if (pointInRect(synthOscTabButtons[i], x, y))
-                        {
-                            setSynthOscTabIndex(activeTrackId, static_cast<int>(i));
-                            InvalidateRect(hwnd, nullptr, FALSE);
-                            return 0;
-                        }
-                    }
-
-                    if (pointInRect(synthWavetableToggleButton, x, y))
-                    {
-                        bool enabled = trackGetSynthOscWavetableEnabled(activeTrackId, oscIndex);
-                        trackSetSynthOscWavetableEnabled(activeTrackId, oscIndex, !enabled);
-                        InvalidateRect(hwnd, nullptr, FALSE);
-                        return 0;
-                    }
-                }
-
-                if (pointInRect(gSynthFormantSliderControl.control, x, y))
-                {
-                    openTrackTypeTrackId = 0;
-                    waveDropdownOpen = false;
-                    midiChannelDropdownOpen = false;
-                    midiChannelDropdownTrackId = 0;
-                    audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthFormant, activeTrackId,
-                                    synthThreeOscEnabled ? oscIndex : -1);
-                    updateSliderDrag(hwnd, x);
-                    return 0;
-                }
-
-                if (pointInRect(gSynthResonanceSliderControl.control, x, y))
-                {
-                    openTrackTypeTrackId = 0;
-                    waveDropdownOpen = false;
-                    midiChannelDropdownOpen = false;
-                    midiChannelDropdownTrackId = 0;
-                    audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthResonance, activeTrackId,
-                                    synthThreeOscEnabled ? oscIndex : -1);
-                    updateSliderDrag(hwnd, x);
-                    return 0;
-                }
-
-                if (pointInRect(gSynthFeedbackSliderControl.control, x, y))
-                {
-                    openTrackTypeTrackId = 0;
-                    waveDropdownOpen = false;
-                    midiChannelDropdownOpen = false;
-                    midiChannelDropdownTrackId = 0;
-                    audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthFeedback, activeTrackId,
-                                    synthThreeOscEnabled ? oscIndex : -1);
-                    updateSliderDrag(hwnd, x);
-                    return 0;
-                }
-
-                if (pointInRect(gSynthPitchSliderControl.control, x, y))
-                {
-                    openTrackTypeTrackId = 0;
-                    waveDropdownOpen = false;
-                    midiChannelDropdownOpen = false;
-                    midiChannelDropdownTrackId = 0;
-                    audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthPitch, activeTrackId,
-                                    synthThreeOscEnabled ? oscIndex : -1);
-                    updateSliderDrag(hwnd, x);
-                    return 0;
-                }
-
-                if (pointInRect(gSynthPitchRangeSliderControl.control, x, y))
-                {
-                    openTrackTypeTrackId = 0;
-                    waveDropdownOpen = false;
-                    midiChannelDropdownOpen = false;
-                    midiChannelDropdownTrackId = 0;
-                    audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthPitchRange, activeTrackId,
-                                    synthThreeOscEnabled ? oscIndex : -1);
-                    updateSliderDrag(hwnd, x);
-                    return 0;
-                }
-
-                if (pointInRect(gSynthAttackSliderControl.control, x, y))
-                {
-                    openTrackTypeTrackId = 0;
-                    waveDropdownOpen = false;
-                    midiChannelDropdownOpen = false;
-                    midiChannelDropdownTrackId = 0;
-                    audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthAttack, activeTrackId,
-                                    synthThreeOscEnabled ? oscIndex : -1);
-                    updateSliderDrag(hwnd, x);
-                    return 0;
-                }
-
-                if (pointInRect(gSynthDecaySliderControl.control, x, y))
-                {
-                    openTrackTypeTrackId = 0;
-                    waveDropdownOpen = false;
-                    midiChannelDropdownOpen = false;
-                    midiChannelDropdownTrackId = 0;
-                    audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthDecay, activeTrackId,
-                                    synthThreeOscEnabled ? oscIndex : -1);
-                    updateSliderDrag(hwnd, x);
-                    return 0;
-                }
-
-                if (pointInRect(gSynthSustainSliderControl.control, x, y))
-                {
-                    openTrackTypeTrackId = 0;
-                    waveDropdownOpen = false;
-                    midiChannelDropdownOpen = false;
-                    midiChannelDropdownTrackId = 0;
-                    audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthSustain, activeTrackId,
-                                    synthThreeOscEnabled ? oscIndex : -1);
-                    updateSliderDrag(hwnd, x);
-                    return 0;
-                }
-
-                if (pointInRect(gSynthReleaseSliderControl.control, x, y))
-                {
-                    openTrackTypeTrackId = 0;
-                    waveDropdownOpen = false;
-                    midiChannelDropdownOpen = false;
-                    midiChannelDropdownTrackId = 0;
-                    audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SynthRelease, activeTrackId,
-                                    synthThreeOscEnabled ? oscIndex : -1);
-                    updateSliderDrag(hwnd, x);
-                    return 0;
-                }
-            }
-            else if (showSampleLoader)
-            {
-                if (pointInRect(gSampleAttackSliderControl.control, x, y))
-                {
-                    openTrackTypeTrackId = 0;
-                    waveDropdownOpen = false;
-                    midiChannelDropdownOpen = false;
-                    midiChannelDropdownTrackId = 0;
-                    audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SampleAttack, activeTrackId);
-                    updateSliderDrag(hwnd, x);
-                    return 0;
-                }
-
-                if (pointInRect(gSampleReleaseSliderControl.control, x, y))
-                {
-                    openTrackTypeTrackId = 0;
-                    waveDropdownOpen = false;
-                    midiChannelDropdownOpen = false;
-                    midiChannelDropdownTrackId = 0;
-                    audioDeviceDropdownOpen = false;
-                    beginSliderDrag(hwnd, SliderDragTarget::SampleRelease, activeTrackId);
-                    updateSliderDrag(hwnd, x);
-                    return 0;
-                }
-            }
-        }
+        // Synth and sampler parameter controls are handled in their dedicated tool windows.
 
         int previousDropdownTrack = openTrackTypeTrackId;
         for (size_t i = 0; i < trackTabRects.size() && i < tracks.size(); ++i)
@@ -6929,233 +7099,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
     }
     case WM_RBUTTONUP:
-    {
-        int x = GET_X_LPARAM(lParam);
-        int y = GET_Y_LPARAM(lParam);
-
-        auto tracks = getTracks();
-        ensureTrackTabState(tracks);
-
-        int activeTrackId = selectedTrackId;
-        if (activeTrackId <= 0 && !tracks.empty())
-        {
-            activeTrackId = tracks.front().id;
-            setActiveSequencerTrackId(activeTrackId);
-        }
-
-        if (activeTrackId <= 0)
-            return 0;
-
-        TrackType trackType = TrackType::Synth;
-        if (const Track* activeTrack = findTrackById(tracks, activeTrackId))
-        {
-            trackType = activeTrack->type;
-        }
-        else
-        {
-            trackType = trackGetType(activeTrackId);
-        }
-
-        bool synthControls = trackType == TrackType::Synth;
-        bool sampleControls = trackType == TrackType::Sample;
-        if (!synthControls && !sampleControls)
-            return 0;
-
-        SliderDragTarget contextTarget = SliderDragTarget::None;
-        if (synthControls)
-        {
-            bool synthThreeOscEnabled = trackGetSynthThreeOscEnabled(activeTrackId);
-            if (synthThreeOscEnabled && pointInRect(synthWavetableToggleButton, x, y))
-                contextTarget = SliderDragTarget::SynthWavetableToggle;
-            else if (pointInRect(gSynthFormantSliderControl.control, x, y))
-                contextTarget = SliderDragTarget::SynthFormant;
-            else if (pointInRect(gSynthResonanceSliderControl.control, x, y))
-                contextTarget = SliderDragTarget::SynthResonance;
-            else if (pointInRect(gSynthFeedbackSliderControl.control, x, y))
-                contextTarget = SliderDragTarget::SynthFeedback;
-            else if (pointInRect(gSynthPitchSliderControl.control, x, y))
-                contextTarget = SliderDragTarget::SynthPitch;
-            else if (pointInRect(gSynthPitchRangeSliderControl.control, x, y))
-                contextTarget = SliderDragTarget::SynthPitchRange;
-            else if (pointInRect(gSynthAttackSliderControl.control, x, y))
-                contextTarget = SliderDragTarget::SynthAttack;
-            else if (pointInRect(gSynthDecaySliderControl.control, x, y))
-                contextTarget = SliderDragTarget::SynthDecay;
-            else if (pointInRect(gSynthSustainSliderControl.control, x, y))
-                contextTarget = SliderDragTarget::SynthSustain;
-            else if (pointInRect(gSynthReleaseSliderControl.control, x, y))
-                contextTarget = SliderDragTarget::SynthRelease;
-        }
-        else if (sampleControls)
-        {
-            if (pointInRect(gSampleAttackSliderControl.control, x, y))
-                contextTarget = SliderDragTarget::SampleAttack;
-            else if (pointInRect(gSampleReleaseSliderControl.control, x, y))
-                contextTarget = SliderDragTarget::SampleRelease;
-        }
-
-        if (contextTarget == SliderDragTarget::None)
-            return 0;
-
-        HMENU menu = CreatePopupMenu();
-        if (!menu)
-            return 0;
-
-        AppendMenuW(menu, MF_STRING, kParameterContextSetModTargetId, L"Set as Mod Target");
-
-        POINT screenPoint{x, y};
-        ClientToScreen(hwnd, &screenPoint);
-        SetForegroundWindow(hwnd);
-        UINT command = TrackPopupMenu(menu,
-                                      TPM_RIGHTBUTTON | TPM_RETURNCMD,
-                                      screenPoint.x,
-                                      screenPoint.y,
-                                      0,
-                                      hwnd,
-                                      nullptr);
-        DestroyMenu(menu);
-
-        if (command == kParameterContextSetModTargetId)
-        {
-            ModMatrixParameter parameter = ModMatrixParameter::Volume;
-            bool validParameter = true;
-            bool synthThreeOscEnabled = synthControls ? trackGetSynthThreeOscEnabled(activeTrackId) : false;
-            int oscIndex = synthThreeOscEnabled ? getSynthOscTabIndex(activeTrackId) : -1;
-            switch (contextTarget)
-            {
-            case SliderDragTarget::SynthFormant:
-                if (synthThreeOscEnabled)
-                {
-                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Formant :
-                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Formant :
-                                                 ModMatrixParameter::SynthOsc1Formant;
-                }
-                else
-                {
-                    parameter = ModMatrixParameter::SynthFormant;
-                }
-                break;
-            case SliderDragTarget::SynthResonance:
-                if (synthThreeOscEnabled)
-                {
-                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Resonance :
-                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Resonance :
-                                                 ModMatrixParameter::SynthOsc1Resonance;
-                }
-                else
-                {
-                    parameter = ModMatrixParameter::SynthResonance;
-                }
-                break;
-            case SliderDragTarget::SynthFeedback:
-                if (synthThreeOscEnabled)
-                {
-                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Feedback :
-                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Feedback :
-                                                 ModMatrixParameter::SynthOsc1Feedback;
-                }
-                else
-                {
-                    parameter = ModMatrixParameter::SynthFeedback;
-                }
-                break;
-            case SliderDragTarget::SynthPitch:
-                if (synthThreeOscEnabled)
-                {
-                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Pitch :
-                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Pitch :
-                                                 ModMatrixParameter::SynthOsc1Pitch;
-                }
-                else
-                {
-                    parameter = ModMatrixParameter::SynthPitch;
-                }
-                break;
-            case SliderDragTarget::SynthPitchRange:
-                if (synthThreeOscEnabled)
-                {
-                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2PitchRange :
-                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3PitchRange :
-                                                 ModMatrixParameter::SynthOsc1PitchRange;
-                }
-                else
-                {
-                    parameter = ModMatrixParameter::SynthPitchRange;
-                }
-                break;
-            case SliderDragTarget::SynthAttack:
-                if (synthThreeOscEnabled)
-                {
-                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Attack :
-                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Attack :
-                                                 ModMatrixParameter::SynthOsc1Attack;
-                }
-                else
-                {
-                    parameter = ModMatrixParameter::SynthAttack;
-                }
-                break;
-            case SliderDragTarget::SynthDecay:
-                if (synthThreeOscEnabled)
-                {
-                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Decay :
-                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Decay :
-                                                 ModMatrixParameter::SynthOsc1Decay;
-                }
-                else
-                {
-                    parameter = ModMatrixParameter::SynthDecay;
-                }
-                break;
-            case SliderDragTarget::SynthSustain:
-                if (synthThreeOscEnabled)
-                {
-                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Sustain :
-                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Sustain :
-                                                 ModMatrixParameter::SynthOsc1Sustain;
-                }
-                else
-                {
-                    parameter = ModMatrixParameter::SynthSustain;
-                }
-                break;
-            case SliderDragTarget::SynthRelease:
-                if (synthThreeOscEnabled)
-                {
-                    parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Release :
-                               (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Release :
-                                                 ModMatrixParameter::SynthOsc1Release;
-                }
-                else
-                {
-                    parameter = ModMatrixParameter::SynthRelease;
-                }
-                break;
-            case SliderDragTarget::SynthWavetableToggle:
-                parameter = (oscIndex == 1) ? ModMatrixParameter::SynthOsc2Wavetable :
-                           (oscIndex == 2) ? ModMatrixParameter::SynthOsc3Wavetable :
-                                             ModMatrixParameter::SynthOsc1Wavetable;
-                break;
-            case SliderDragTarget::SampleAttack:
-                parameter = ModMatrixParameter::SampleAttack;
-                break;
-            case SliderDragTarget::SampleRelease:
-                parameter = ModMatrixParameter::SampleRelease;
-                break;
-            default:
-                validParameter = false;
-                break;
-            }
-
-            if (validParameter)
-            {
-                openModMatrixWindow(hwnd);
-                focusModMatrixTarget(parameter, activeTrackId);
-            }
-        }
-
+        // Context menu for synth/sample params now lives in dedicated parameter windows.
         return 0;
-    }
+
     case WM_MOUSEMOVE:
     {
         if (gSliderDrag.target != SliderDragTarget::None)
@@ -7193,6 +7139,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         }
         // Soft heartbeat for plugin UIs
         InvalidateRect(hwnd, nullptr, FALSE);
+        if (gSynthParamsWindow && IsWindow(gSynthParamsWindow))
+            InvalidateRect(gSynthParamsWindow, nullptr, FALSE);
+        if (gSampleParamsWindow && IsWindow(gSampleParamsWindow))
+            InvalidateRect(gSampleParamsWindow, nullptr, FALSE);
         return 0;
     }
     case WM_SIZE:
@@ -7200,8 +7150,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         int width = LOWORD(lParam);
         int height = HIWORD(lParam);
         ensureSurfaceSize(width, height);
+        buildStepRects();
+        snapParamWindowsToMain();
         return 0;
     }
+    case WM_MOVE:
+        snapParamWindowsToMain();
+        return 0;
     case WM_PAINT:
     {
         PAINTSTRUCT ps;
@@ -7232,6 +7187,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             DestroyWindow(gDelayWindow);
         if (gSidechainWindow && IsWindow(gSidechainWindow))
             DestroyWindow(gSidechainWindow);
+        if (gSynthParamsWindow && IsWindow(gSynthParamsWindow))
+            DestroyWindow(gSynthParamsWindow);
+        if (gSampleParamsWindow && IsWindow(gSampleParamsWindow))
+            DestroyWindow(gSampleParamsWindow);
         PostQuitMessage(0);
         return 0;
     }
