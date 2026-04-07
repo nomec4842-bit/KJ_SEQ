@@ -4989,9 +4989,11 @@ float sliderValueFromLocalPosition(const SliderControlRects& slider, int localX,
     if (trackWidth <= 0)
         return minValue;
 
-    // Cast for consistent LONG type usage
-    int clampedX = static_cast<int>(std::clamp<LONG>(static_cast<LONG>(localX), trackLeftLocal, trackRightLocal));
-    double normalized = static_cast<double>(clampedX - trackLeftLocal) / static_cast<double>(trackWidth);
+    constexpr int kSliderHandleWidth = 12;
+    int handleTravel = std::max(trackWidth - kSliderHandleWidth, 1);
+    int desiredHandleLeft = localX - kSliderHandleWidth / 2;
+    int clampedHandleLeft = std::clamp(desiredHandleLeft, trackLeftLocal, trackLeftLocal + handleTravel);
+    double normalized = static_cast<double>(clampedHandleLeft - trackLeftLocal) / static_cast<double>(handleTravel);
     double value = static_cast<double>(minValue) + normalized * (static_cast<double>(maxValue) - static_cast<double>(minValue));
     float result = static_cast<float>(value);
     return std::clamp(result, minValue, maxValue);
@@ -5263,7 +5265,7 @@ void drawSliderControl(LICE_SysBitmap& surface, SliderControlRects& sliderRects,
     LICE_DrawRect(&surface, trackRect.left, trackRect.top, trackWidth, trackHeight, LICE_ColorFromCOLORREF(RGB(90, 90, 90)));
 
     double clampedNorm = std::clamp(normalizedValue, 0.0, 1.0);
-    int handleWidth = 12;
+    constexpr int handleWidth = 12;
     int handleRange = std::max(trackWidth - handleWidth, 1);
     int handleX = trackRect.left + static_cast<int>(std::round(clampedNorm * handleRange));
     RECT handleRect {handleX, trackRect.top - 4, handleX + handleWidth, trackRect.bottom + 4};
