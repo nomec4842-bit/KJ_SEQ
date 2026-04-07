@@ -2045,10 +2045,11 @@ LRESULT CALLBACK PianoRollWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     }
     case WM_LBUTTONUP:
     {
+        if (GetCapture() == hwnd)
+            ReleaseCapture();
+
         if (gPianoRollParamDrag.active)
         {
-            if (GetCapture() == hwnd)
-                ReleaseCapture();
             pianoRollResetParamDrag();
             invalidatePianoRollWindow();
             if (gMainWindow && IsWindow(gMainWindow))
@@ -2059,9 +2060,6 @@ LRESULT CALLBACK PianoRollWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
 
         if (gPianoRollDrag.active)
         {
-            if (GetCapture() == hwnd)
-                ReleaseCapture();
-
             int trackId = gPianoRollDrag.trackId;
             int stepIndex = gPianoRollDrag.startStep;
             int midiNote = gPianoRollDrag.midiNote;
@@ -5905,11 +5903,13 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     }
     case WM_LBUTTONUP:
     {
+        if (GetCapture() == hwnd)
+            ReleaseCapture();
+
         if (gSliderDrag.active && gSliderDrag.owner == hwnd)
         {
             gSliderDrag.active = false;
             gSliderDrag.target = SliderDragTarget::None;
-            ReleaseCapture();
 
             InvalidateRect(hwnd, nullptr, FALSE);
             return 0;
@@ -6006,11 +6006,13 @@ LRESULT CALLBACK SampleParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     }
     case WM_LBUTTONUP:
     {
+        if (GetCapture() == hwnd)
+            ReleaseCapture();
+
         if (gSliderDrag.active && gSliderDrag.owner == hwnd)
         {
             gSliderDrag.active = false;
             gSliderDrag.target = SliderDragTarget::None;
-            ReleaseCapture();
 
             InvalidateRect(hwnd, nullptr, FALSE);
             return 0;
@@ -7276,12 +7278,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
     }
     case WM_LBUTTONUP:
+        if (GetCapture() == hwnd)
+            ReleaseCapture();
         if (isSliderDragOwnedBy(hwnd))
         {
             endSliderDrag(hwnd);
             return 0;
         }
-        break;
+        return 0;
     case WM_CAPTURECHANGED:
         if (gSliderDrag.active &&
             gSliderDrag.owner == hwnd &&
