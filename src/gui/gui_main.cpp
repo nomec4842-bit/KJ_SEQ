@@ -5347,7 +5347,9 @@ void drawSynthTrackControls(LICE_SysBitmap& surface, const RECT& client, const T
     {
         const RECT& firstStep = stepRects.front();
         const RECT& lastStep = stepRects.back();
-        if (firstStep.right <= client.right + 1)
+        constexpr int kMinSynthControlAreaHeight = 220;
+        bool hasVerticalRoom = firstStep.bottom + 12 + kMinSynthControlAreaHeight <= client.bottom;
+        if (firstStep.right <= client.right + 1 && hasVerticalRoom)
         {
             areaLeft = firstStep.left;
             areaRight = lastStep.right;
@@ -5539,7 +5541,9 @@ void drawSampleTrackControls(LICE_SysBitmap& surface, const RECT& client, const 
     {
         const RECT& firstStep = stepRects.front();
         const RECT& lastStep = stepRects.back();
-        if (firstStep.right <= client.right + 1)
+        constexpr int kMinSampleControlAreaHeight = 80;
+        bool hasVerticalRoom = firstStep.bottom + 12 + kMinSampleControlAreaHeight <= client.bottom;
+        if (firstStep.right <= client.right + 1 && hasVerticalRoom)
         {
             areaLeft = firstStep.left;
             areaRight = lastStep.right;
