@@ -5898,7 +5898,7 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             updateSliderDrag(hwnd, pt.x);
             return 0;
         }
-        break;
+        return 0;
     }
     case WM_LBUTTONUP:
         if (isSliderDragOwnedBy(hwnd))
@@ -5986,7 +5986,7 @@ LRESULT CALLBACK SampleParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
             updateSliderDrag(hwnd, pt.x);
             return 0;
         }
-        break;
+        return 0;
     }
     case WM_LBUTTONUP:
         if (isSliderDragOwnedBy(hwnd))
@@ -7251,7 +7251,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             updateSliderDrag(hwnd, x);
             return 0;
         }
-        break;
+        return 0;
     }
     case WM_LBUTTONUP:
         if (isSliderDragOwnedBy(hwnd))
