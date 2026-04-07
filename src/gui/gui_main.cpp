@@ -1016,6 +1016,7 @@ enum class SliderDragTarget
 
 struct SliderDragState
 {
+    bool active = false;
     SliderDragTarget target = SliderDragTarget::None;
     int trackId = 0;
     int oscIndex = -1;
@@ -5034,6 +5035,7 @@ bool sliderHitTest(const SliderControlRects& slider, int x, int y)
 
 void beginSliderDrag(HWND hwnd, SliderDragTarget target, int trackId, int oscIndex = -1)
 {
+    gSliderDrag.active = true;
     gSliderDrag.target = target;
     gSliderDrag.trackId = trackId;
     gSliderDrag.oscIndex = oscIndex;
@@ -5052,7 +5054,7 @@ void beginSliderDrag(HWND hwnd, SliderDragTarget target, int trackId, int oscInd
 
 bool isSliderDragOwnedBy(HWND hwnd)
 {
-    if (gSliderDrag.target == SliderDragTarget::None)
+    if (!gSliderDrag.active)
         return false;
 
     if (gSliderDrag.owner == hwnd)
@@ -5064,9 +5066,10 @@ bool isSliderDragOwnedBy(HWND hwnd)
 void endSliderDrag(HWND hwnd)
 {
     (void)hwnd;
-    if (gSliderDrag.target == SliderDragTarget::None)
+    if (!gSliderDrag.active)
         return;
 
+    gSliderDrag.active = false;
     gSliderDrag.target = SliderDragTarget::None;
     gSliderDrag.trackId = 0;
     gSliderDrag.oscIndex = -1;
@@ -5090,13 +5093,13 @@ void updateSliderDrag(HWND hwnd, int x)
 {
     {
         std::ostringstream stream;
-        stream << "updateSliderDrag called: dragging=" << (gSliderDrag.target != SliderDragTarget::None ? 1 : 0)
+        stream << "updateSliderDrag called: dragging=" << (gSliderDrag.active ? 1 : 0)
                << " target=" << static_cast<int>(gSliderDrag.target)
                << " x=" << x;
         logSliderDebug(stream.str());
     }
 
-    if (gSliderDrag.target == SliderDragTarget::None)
+    if (!gSliderDrag.active)
         return;
 
     int trackId = gSliderDrag.trackId;
@@ -5905,7 +5908,7 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         }
         break;
     case WM_CAPTURECHANGED:
-        if (gSliderDrag.target != SliderDragTarget::None &&
+        if (gSliderDrag.active &&
             gSliderDrag.owner == hwnd &&
             reinterpret_cast<HWND>(lParam) != hwnd)
             endSliderDrag(hwnd);
@@ -5993,7 +5996,7 @@ LRESULT CALLBACK SampleParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         }
         break;
     case WM_CAPTURECHANGED:
-        if (gSliderDrag.target != SliderDragTarget::None &&
+        if (gSliderDrag.active &&
             gSliderDrag.owner == hwnd &&
             reinterpret_cast<HWND>(lParam) != hwnd)
             endSliderDrag(hwnd);
@@ -7258,7 +7261,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         }
         break;
     case WM_CAPTURECHANGED:
-        if (gSliderDrag.target != SliderDragTarget::None &&
+        if (gSliderDrag.active &&
             gSliderDrag.owner == hwnd &&
             reinterpret_cast<HWND>(lParam) != hwnd)
             endSliderDrag(hwnd);
