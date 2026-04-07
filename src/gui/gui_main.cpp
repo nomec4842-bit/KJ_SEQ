@@ -119,6 +119,12 @@ std::string formatDelayPercentValue(float value)
     return stream.str();
 }
 
+void logSliderDebug(const std::string& message)
+{
+    std::string line = "[SliderDebug] " + message + "\n";
+    OutputDebugStringA(line.c_str());
+}
+
 std::string formatNormalizedValue(float value)
 {
     std::ostringstream stream;
@@ -5015,6 +5021,12 @@ void beginSliderDrag(HWND hwnd, SliderDragTarget target, int trackId, int oscInd
     {
         SetCapture(hwnd);
     }
+    std::ostringstream stream;
+    stream << "mouse down: begin drag target=" << static_cast<int>(target)
+           << " trackId=" << trackId
+           << " oscIndex=" << oscIndex
+           << " hwnd=" << reinterpret_cast<uintptr_t>(hwnd);
+    logSliderDebug(stream.str());
 }
 
 bool isSliderDragOwnedBy(HWND hwnd)
@@ -5037,6 +5049,9 @@ void endSliderDrag(HWND hwnd)
     {
         ReleaseCapture();
     }
+    std::ostringstream stream;
+    stream << "mouse up: end drag hwnd=" << reinterpret_cast<uintptr_t>(hwnd);
+    logSliderDebug(stream.str());
 }
 
 void updateSliderDrag(HWND hwnd, int x)
@@ -5062,6 +5077,12 @@ void updateSliderDrag(HWND hwnd, int x)
         const int localX = x - slider.control.left;
         float newValue = sliderValueFromLocalPosition(slider, localX, minValue, maxValue);
         setter(newValue);
+        std::ostringstream stream;
+        stream << "mouse move: target=" << static_cast<int>(gSliderDrag.target)
+               << " x=" << x
+               << " value=" << newValue;
+        logSliderDebug(stream.str());
+        logSliderDebug("redraw call: InvalidateRect from slider update");
         InvalidateRect(hwnd, nullptr, FALSE);
         return true;
     };
@@ -5834,6 +5855,7 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         return 0;
     case WM_PAINT:
     {
+        logSliderDebug("redraw call: SynthParamsWndProc WM_PAINT");
         PAINTSTRUCT ps{};
         HDC hdc = BeginPaint(hwnd, &ps);
         RECT client{};
@@ -5911,6 +5933,7 @@ LRESULT CALLBACK SampleParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
     case WM_PAINT:
     {
+        logSliderDebug("redraw call: SampleParamsWndProc WM_PAINT");
         PAINTSTRUCT ps{};
         HDC hdc = BeginPaint(hwnd, &ps);
         RECT client{};
@@ -7199,6 +7222,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
     case WM_PAINT:
     {
+        logSliderDebug("redraw call: Main WndProc WM_PAINT");
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
         RECT client;
