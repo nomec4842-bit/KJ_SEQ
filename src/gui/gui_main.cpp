@@ -5015,6 +5015,11 @@ void beginSliderDrag(HWND hwnd, SliderDragTarget target, int trackId, int oscInd
     }
 }
 
+bool isSliderDragOwnedBy(HWND hwnd)
+{
+    return gSliderDrag.target != SliderDragTarget::None && gSliderDrag.owner == hwnd;
+}
+
 void endSliderDrag(HWND hwnd)
 {
     (void)hwnd;
@@ -5804,15 +5809,19 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         return 0;
     }
     case WM_MOUSEMOVE:
-        if (gSliderDrag.target != SliderDragTarget::None)
+        if (isSliderDragOwnedBy(hwnd))
         {
             updateSliderDrag(hwnd, GET_X_LPARAM(lParam));
             return 0;
         }
         break;
     case WM_LBUTTONUP:
-        endSliderDrag(hwnd);
-        return 0;
+        if (isSliderDragOwnedBy(hwnd))
+        {
+            endSliderDrag(hwnd);
+            return 0;
+        }
+        break;
     case WM_CAPTURECHANGED:
         if (gSliderDrag.target != SliderDragTarget::None &&
             gSliderDrag.owner == hwnd &&
@@ -5875,15 +5884,19 @@ LRESULT CALLBACK SampleParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
     }
     case WM_MOUSEMOVE:
-        if (gSliderDrag.target != SliderDragTarget::None)
+        if (isSliderDragOwnedBy(hwnd))
         {
             updateSliderDrag(hwnd, GET_X_LPARAM(lParam));
             return 0;
         }
         break;
     case WM_LBUTTONUP:
-        endSliderDrag(hwnd);
-        return 0;
+        if (isSliderDragOwnedBy(hwnd))
+        {
+            endSliderDrag(hwnd);
+            return 0;
+        }
+        break;
     case WM_CAPTURECHANGED:
         if (gSliderDrag.target != SliderDragTarget::None &&
             gSliderDrag.owner == hwnd &&
@@ -7126,7 +7139,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
     case WM_MOUSEMOVE:
     {
-        if (gSliderDrag.target != SliderDragTarget::None)
+        if (isSliderDragOwnedBy(hwnd))
         {
             int x = GET_X_LPARAM(lParam);
             updateSliderDrag(hwnd, x);
@@ -7135,7 +7148,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         break;
     }
     case WM_LBUTTONUP:
-        if (gSliderDrag.target != SliderDragTarget::None)
+        if (isSliderDragOwnedBy(hwnd))
         {
             endSliderDrag(hwnd);
             return 0;
