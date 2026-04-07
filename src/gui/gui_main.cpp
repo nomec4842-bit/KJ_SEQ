@@ -551,6 +551,7 @@ void invalidatePianoRollWindow()
     if (gPianoRollWindow && IsWindow(gPianoRollWindow))
     {
         InvalidateRect(gPianoRollWindow, nullptr, FALSE);
+        UpdateWindow(gPianoRollWindow);
     }
 }
 
@@ -687,6 +688,7 @@ void pianoRollApplyDragRange(int newEndStep)
     if (gMainWindow && IsWindow(gMainWindow))
     {
         InvalidateRect(gMainWindow, nullptr, FALSE);
+        UpdateWindow(gMainWindow);
     }
 }
 
@@ -696,6 +698,7 @@ void pianoRollInvalidateAfterEdit()
     if (gMainWindow && IsWindow(gMainWindow))
     {
         InvalidateRect(gMainWindow, nullptr, FALSE);
+        UpdateWindow(gMainWindow);
     }
 }
 
@@ -1544,13 +1547,11 @@ LRESULT CALLBACK PianoRollWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     switch (msg)
     {
     case WM_CREATE:
-        SetTimer(hwnd, 1, 50, nullptr);
         return 0;
     case WM_CLOSE:
         DestroyWindow(hwnd);
         return 0;
     case WM_DESTROY:
-        KillTimer(hwnd, 1);
         pianoRollResetDrag();
         pianoRollResetParamDrag();
         if (hwnd == gPianoRollWindow)
@@ -1562,9 +1563,6 @@ LRESULT CALLBACK PianoRollWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             }
         }
         requestMainMenuRefresh();
-        return 0;
-    case WM_TIMER:
-        InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
     case WM_LBUTTONDOWN:
     {
@@ -5068,6 +5066,11 @@ void endSliderDrag(HWND hwnd)
     std::ostringstream stream;
     stream << "mouse up: end drag hwnd=" << reinterpret_cast<uintptr_t>(hwnd);
     logSliderDebug(stream.str());
+    if (owner && IsWindow(owner))
+    {
+        InvalidateRect(owner, nullptr, FALSE);
+        UpdateWindow(owner);
+    }
 }
 
 void updateSliderDrag(HWND hwnd, int x)
@@ -5108,6 +5111,7 @@ void updateSliderDrag(HWND hwnd, int x)
         logSliderDebug(stream.str());
         logSliderDebug("redraw call: InvalidateRect from slider update");
         InvalidateRect(hwnd, nullptr, FALSE);
+        UpdateWindow(hwnd);
         return true;
     };
 
@@ -5778,6 +5782,10 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
     case WM_LBUTTONDOWN:
     {
         int x = GET_X_LPARAM(lParam);
+        auto requestImmediateRedraw = [hwnd]() {
+            InvalidateRect(hwnd, nullptr, FALSE);
+            UpdateWindow(hwnd);
+        };
         endSliderDrag(hwnd);
         std::vector<Track> tracks;
         Track fallback{};
@@ -5816,7 +5824,7 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     trackSetSynthOscRelease(activeTrackId, i, release);
                 }
             }
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestImmediateRedraw();
             return 0;
         }
 
@@ -5827,7 +5835,7 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 if (pointInRect(synthOscTabButtons[i], GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)))
                 {
                     setSynthOscTabIndex(activeTrackId, static_cast<int>(i));
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestImmediateRedraw();
                     return 0;
                 }
             }
@@ -5835,7 +5843,7 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             {
                 bool enabled = trackGetSynthOscWavetableEnabled(activeTrackId, oscIndex);
                 trackSetSynthOscWavetableEnabled(activeTrackId, oscIndex, !enabled);
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestImmediateRedraw();
                 return 0;
             }
         }
