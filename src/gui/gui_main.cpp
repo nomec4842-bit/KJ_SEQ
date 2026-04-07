@@ -1009,6 +1009,7 @@ struct SliderDragState
     SliderDragTarget target = SliderDragTarget::None;
     int trackId = 0;
     int oscIndex = -1;
+    HWND owner = nullptr;
 };
 
 SliderDragState gSliderDrag{};
@@ -4999,6 +5000,7 @@ void beginSliderDrag(HWND hwnd, SliderDragTarget target, int trackId, int oscInd
     gSliderDrag.target = target;
     gSliderDrag.trackId = trackId;
     gSliderDrag.oscIndex = oscIndex;
+    gSliderDrag.owner = hwnd;
     if (hwnd && GetCapture() != hwnd)
     {
         SetCapture(hwnd);
@@ -5007,13 +5009,16 @@ void beginSliderDrag(HWND hwnd, SliderDragTarget target, int trackId, int oscInd
 
 void endSliderDrag(HWND hwnd)
 {
+    (void)hwnd;
     if (gSliderDrag.target == SliderDragTarget::None)
         return;
 
     gSliderDrag.target = SliderDragTarget::None;
     gSliderDrag.trackId = 0;
     gSliderDrag.oscIndex = -1;
-    if (hwnd && GetCapture() == hwnd)
+    HWND owner = gSliderDrag.owner;
+    gSliderDrag.owner = nullptr;
+    if (owner && GetCapture() == owner)
     {
         ReleaseCapture();
     }
@@ -5800,7 +5805,9 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         endSliderDrag(hwnd);
         return 0;
     case WM_CAPTURECHANGED:
-        if (gSliderDrag.target != SliderDragTarget::None && reinterpret_cast<HWND>(lParam) != hwnd)
+        if (gSliderDrag.target != SliderDragTarget::None &&
+            gSliderDrag.owner == hwnd &&
+            reinterpret_cast<HWND>(lParam) != hwnd)
             endSliderDrag(hwnd);
         return 0;
     case WM_PAINT:
@@ -5869,7 +5876,9 @@ LRESULT CALLBACK SampleParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         endSliderDrag(hwnd);
         return 0;
     case WM_CAPTURECHANGED:
-        if (gSliderDrag.target != SliderDragTarget::None && reinterpret_cast<HWND>(lParam) != hwnd)
+        if (gSliderDrag.target != SliderDragTarget::None &&
+            gSliderDrag.owner == hwnd &&
+            reinterpret_cast<HWND>(lParam) != hwnd)
             endSliderDrag(hwnd);
         return 0;
     case WM_PAINT:
@@ -7124,11 +7133,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         }
         break;
     case WM_CAPTURECHANGED:
-        if (gSliderDrag.target != SliderDragTarget::None && reinterpret_cast<HWND>(lParam) != hwnd)
-        {
-            gSliderDrag.target = SliderDragTarget::None;
-            gSliderDrag.trackId = 0;
-        }
+        if (gSliderDrag.target != SliderDragTarget::None &&
+            gSliderDrag.owner == hwnd &&
+            reinterpret_cast<HWND>(lParam) != hwnd)
+            endSliderDrag(hwnd);
         break;
     case WM_TIMER:
     {
