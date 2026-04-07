@@ -5805,7 +5805,7 @@ LRESULT CALLBACK SynthParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
         HDC hdc = BeginPaint(hwnd, &ps);
         RECT client{};
         GetClientRect(hwnd, &client);
-        LICE_SysBitmap surface(std::max(1, client.right), std::max(1, client.bottom));
+        LICE_SysBitmap surface(std::max<int>(1, static_cast<int>(client.right)), std::max<int>(1, static_cast<int>(client.bottom)));
         LICE_Clear(&surface, LICE_ColorFromCOLORREF(RGB(20, 20, 20)));
 
         std::vector<Track> tracks;
@@ -5874,7 +5874,7 @@ LRESULT CALLBACK SampleParamsWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         HDC hdc = BeginPaint(hwnd, &ps);
         RECT client{};
         GetClientRect(hwnd, &client);
-        LICE_SysBitmap surface(std::max(1, client.right), std::max(1, client.bottom));
+        LICE_SysBitmap surface(std::max<int>(1, static_cast<int>(client.right)), std::max<int>(1, static_cast<int>(client.bottom)));
         LICE_Clear(&surface, LICE_ColorFromCOLORREF(RGB(20, 20, 20)));
         std::vector<Track> tracks;
         Track fallback{};
