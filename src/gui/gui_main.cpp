@@ -1917,6 +1917,8 @@ LRESULT CALLBACK PianoRollWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                     }
                 }
             }
+
+            return 0;
         }
 
         if (!gPianoRollDrag.active)
